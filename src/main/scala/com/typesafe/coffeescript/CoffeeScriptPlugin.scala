@@ -9,6 +9,8 @@ import com.typesafe.jse.sbt.JsEnginePlugin
 import sbt._
 import sbt.Keys._
 import scala.util.{ Failure, Success, Try }
+import spray.json._
+import xsbti.{ Maybe, Position, Severity }
 
 object CoffeeScriptEngine {
   import akka.actor.{ ActorRefFactory, ActorSystem }
@@ -28,13 +30,18 @@ object CoffeeScriptEngine {
 
   // }
 
-  def compile(input: File, output: File)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[JsExecutionResult] = {
+  sealed trait CompileResult
+  case object CompileSuccess extends CompileResult
+  case class CompileError(message: String /* TODO , location: Option[Location]*/) extends CompileResult
+  // TODO: Other types of error, e.g. missing file
+
+  def compile(input: File, output: File)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
     val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
 
     def generateDriverFile(): File = {
       import org.apache.commons.io._
       val file = File.createTempFile("sbt-coffeescript-driver", ".js") // TODO: Use SBT temp directory?
-      //file.deleteOnExit()
+      file.deleteOnExit()
 
       val fileStream = FileUtils.openOutputStream(file)
       try {
@@ -57,9 +64,21 @@ object CoffeeScriptEngine {
       file
     }
     val f = generateDriverFile()
-    val arg = s"""{"input":"${input.getPath}","output":"${output.getPath}"}"""
 
-    (engine ? Engine.ExecuteJs(f, immutable.Seq(arg))).mapTo[JsExecutionResult]
+    //import DefaultJsonProtocol._
+
+    val arg = JsObject(
+      "input" -> JsString(input.getPath),
+      "output" -> JsString(output.getPath)
+    ).compactPrint
+
+    (engine ? Engine.ExecuteJs(f, immutable.Seq(arg))).mapTo[JsExecutionResult].map {
+      case JsExecutionResult(0, _, _) =>
+        CompileSuccess
+      case JsExecutionResult(1, _, stderrBytes) =>
+        CompileError(new String(stderrBytes.toArray, "utf-8"))
+      case unknown => throw new RuntimeException(s"Unknown JsExecutionResult: $unknown") // TODO: Exception type
+    }
 
   }
 
@@ -71,9 +90,10 @@ object CoffeeScriptEngine {
         input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
         output = new File("/p/play/js/sbt-coffeescript/target/test.js"))
       val result = Await.result(resultFuture, 5.seconds)
-      println(result.exitValue)
-      println(s"out: "+ new String(result.output.toArray, "utf-8"))
-      println(s"err: "+ new String(result.error.toArray, "utf-8"))
+      println(result)
+      //println(result.exitCode)
+      //println(s"out: "+ new String(result.output.toArray, "utf-8"))
+      //println(s"err: "+ new String(result.error.toArray, "utf-8"))
     } finally {
       println("Running shutdown")
       system.shutdown()
@@ -147,18 +167,54 @@ object CoffeeScriptPlugin extends Plugin {
       import scala.concurrent.{ Await, Future }
       import scala.concurrent.duration._
       import scala.concurrent.ExecutionContext.Implicits.global
+      val webReporter = WebKeys.reporter.value
+      webReporter.reset()
       for ((input, output) <- (mappings in WebKeys.Assets).value) { // FIXME: Proper scoping
         implicit val jseSystem = JsEnginePlugin.jseSystem
         implicit val jseTimeout = JsEnginePlugin.jseTimeout
         //implicit val system = ActorSystem("jse-system")
         //implicit val timeout = Timeout(5.seconds)
         try {
-          println(s"Compiling $input to $output.")
+          //println(s"Compiling $input to $output.")
           val resultFuture = CoffeeScriptEngine.compile(input, output)
-          val result = Await.result(resultFuture, 5.seconds)
-          println(result.exitValue)
-          println(s"out: "+ new String(result.output.toArray, "utf-8"))
-          println(s"err: "+ new String(result.error.toArray, "utf-8"))
+          import CoffeeScriptEngine._
+
+          Try(Await.result(resultFuture, 5.seconds)) match {
+            case Success(CompileSuccess) =>
+            case Success(CompileError(errObj)) =>
+              // TODO: Move JSON deserialization logic out of SBT part
+              //val message = errObj.getFields("Error")
+              def optToMaybe[T](opt: Option[T]): Maybe[T] = opt match {
+                case None => Maybe.nothing()
+                case Some(x) => Maybe.just(x)
+              }
+              val pos = new Position {
+                val line: Maybe[Integer] = Maybe.just(new Integer(0))
+                  //Maybe.just(java.lang.Double.parseDouble(o.fields.get("line").get.toString()).toInt)
+                val offset: Maybe[Integer] = Maybe.just(new Integer(3))
+                  // Maybe.just(java.lang.Double.parseDouble(o.fields.get("character").get.toString()).toInt - 1)
+
+                val lineContent: String = "DUMMY-LINE-CONTENT"
+                // o.fields.get("evidence") match {
+                //   case Some(JsString(line)) => line
+                //   case _ => ""
+                // }
+
+                val pointer: Maybe[Integer] = offset
+                val pointerSpace: Maybe[String] = Maybe.just(
+                  lineContent.take(pointer.get).map {
+                    case '\t' => '\t'
+                    case x => ' '
+                  })
+
+                val sourceFile: Maybe[File] = Maybe.just(input)
+                val sourcePath: Maybe[String] = Maybe.just(input.getPath)
+              }
+              webReporter.log(pos, "dummy message", Severity.Error)
+          }
+          //println(result.exitValue)
+          //println(s"out: "+ new String(result.output.toArray, "utf-8"))
+          //println(s"err: "+ new String(result.error.toArray, "utf-8"))
         } finally {
           //println("Running shutdown")
           //system.shutdown()
@@ -166,6 +222,11 @@ object CoffeeScriptPlugin extends Plugin {
           //system.awaitTermination()
           //println("Terminated")
         }
+      }
+
+      webReporter.printSummary()
+      if (webReporter.hasErrors) {
+        throw new RuntimeException("CoffeeScript failure") // TODO: Proper exception
       }
     }
   )

@@ -17,6 +17,7 @@ for(s=[],e=0,n=o.length;n>e;e++)r=o[e],i=r.type,__indexOf.call(t,i)>=0&&s.push(r
 var CoffeeScript = this.CoffeeScript;
 fs = require('fs');
 path = require('path');
+//process = require('process');
 
 function makeParentDir(childPath) {
   var parentPath = path.dirname(childPath);
@@ -25,10 +26,20 @@ function makeParentDir(childPath) {
   makeParentDir(parentPath);
 }
 
-console.log('args', process.argv);
-var opts = JSON.parse(process.argv[2]);
-var coffeeSourceBuffer = fs.readFileSync(opts.input)
-var compileResult = CoffeeScript.compile(coffeeSourceBuffer.toString(), {sourceMap: false, fileName: opts.output});
-var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
-makeParentDir(opts.output);
-fs.writeFileSync(opts.output, compileResult)
+var errResult = null;
+try {
+  var opts = JSON.parse(process.argv[2]);
+  var coffeeSourceBuffer = fs.readFileSync(opts.input)
+  var compileResult = CoffeeScript.compile(coffeeSourceBuffer.toString(), {sourceMap: false, fileName: opts.output});
+  var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
+  makeParentDir(opts.output);
+  fs.writeFileSync(opts.output, compileResult)
+} catch (err) {
+  var errResult = {};
+  errResult.message = err.message;
+  if (err.location) errResult.location = err.location;
+}
+if (errResult) {
+  process.stderr.write(JSON.stringify(errResult));
+  process.exit(1);
+}
