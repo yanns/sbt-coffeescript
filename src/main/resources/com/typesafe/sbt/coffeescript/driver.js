@@ -19,14 +19,27 @@ fs = require('fs');
 path = require('path');
 
 
-// Given options, compile a file and produce a result
+// Drive compilation of a single file by:
+// - reading some JSON options for that file from a command line argument
+// - passing those arguments to the `compileFile` function
+// - JSON encoding the function's return value and writing it to stdout.
+
+var opts = JSON.parse(process.argv[2]);
+var result = compileFile(opts);
+process.stdout.write(JSON.stringify(result));
+
+
+// Compile a single file.
+// Returns an object indicating success of failure.
+// The result object uses primitive JS types only, so that it can be JSON encoded.
 function compileFile(fileOptions) {
 
-  function makeParentDir(childPath) {
+  // Make the any parent directories needed for the given path
+  function makeParentDirs(childPath) {
     var parentPath = path.dirname(childPath);
     if (fs.existsSync(parentPath)) return;
     fs.mkdirSync(parentPath);
-    makeParentDir(parentPath);
+    makeParentDirs(parentPath);
   }
 
   try {
@@ -59,7 +72,3 @@ function compileFile(fileOptions) {
   }
 
 }
-
-var opts = JSON.parse(process.argv[2]);
-var result = compileFile(opts);
-process.stdout.write(JSON.stringify(result));
