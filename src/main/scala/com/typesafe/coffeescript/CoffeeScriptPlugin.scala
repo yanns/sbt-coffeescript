@@ -139,13 +139,12 @@ object CoffeeScriptPlugin extends Plugin {
     //val tokens = 
   }
 
-  def coffeeScriptSettings: Seq[Setting[_]] = Seq(
-    CoffeeScriptKeys.sourceFilter := GlobFilter("*.coffee") | GlobFilter("*.litcoffee"),
-    (CoffeeScriptKeys.mappings in WebKeys.Assets) := {
+  private def scopedSettings(webConfig: Configuration, nonWebConfig: Configuration): Seq[Setting[_]] = Seq(
+    (CoffeeScriptKeys.mappings in webConfig) := {
       // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
-      val sourceDir = (sourceDirectory in WebKeys.Assets).value
-      val sources = (sourceDir ** CoffeeScriptKeys.sourceFilter.value).get
-      val outputDir = (resourceManaged in WebKeys.Assets).value
+      val sourceDir = (sourceDirectory in webConfig).value
+      val sources = (sourceDir ** (CoffeeScriptKeys.sourceFilter in webConfig).value).get
+      val outputDir = (resourceManaged in webConfig).value
       sources x rebase(sourceDir, outputDir) map {
         case (inFile, outFile) =>
           println(inFile, outFile)
@@ -158,51 +157,65 @@ object CoffeeScriptPlugin extends Plugin {
           (inFile, new File(parent, dedotted + ".js"))
       }
     },
-    CoffeeScriptKeys.compile := {
+    (CoffeeScriptKeys.compile in webConfig) := {
 
       // TODO: Think about lifecycle (start/stop) of ActorSystem
       implicit val jseSystem = JsEnginePlugin.jseSystem
       implicit val jseTimeout = JsEnginePlugin.jseTimeout
 
-      val webReporter = WebKeys.reporter.value
-      webReporter.reset()
-      // FIXME: Proper scoping of mappings
-      val mappings = (CoffeeScriptKeys.mappings in WebKeys.Assets).value
+      val mappings = (CoffeeScriptKeys.mappings in webConfig).value
 
-      for ((input, output) <- mappings) {
+      val log = streams.value.log
+      val sourceCount = mappings.length
+      if (sourceCount > 0) {
+        val sourceString = if (sourceCount == 1) "source" else "sources"
+        log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
+        val webReporter = WebKeys.reporter.value
+        webReporter.reset()
+        // FIXME: Proper scoping of mappings
 
-        val resultFuture = CoffeeScriptEngine.compile(input, output)
+        for ((input, output) <- mappings) {
 
-        import CoffeeScriptEngine._
+          val resultFuture = CoffeeScriptEngine.compile(input, output)
 
-        Await.result(resultFuture, jseTimeout.duration) match {
-          case CompileSuccess =>
-          case err: CodeError =>
-            val pos = new Position {
-              def line: Maybe[Integer] = Maybe.just(err.lineNumber)
-              def offset: Maybe[Integer] = Maybe.just(err.lineOffset)
-              def lineContent: String = err.lineContent
-              def pointer: Maybe[Integer] = offset
-              def pointerSpace: Maybe[String] = Maybe.just(
-                lineContent.take(pointer.get).map {
-                  case '\t' => '\t'
-                  case x => ' '
-                })
-              def sourceFile: Maybe[File] = Maybe.just(input)
-              def sourcePath: Maybe[String] = Maybe.just(input.getPath)
-            }
-            webReporter.log(pos, err.message, Severity.Error)
-          case err: GenericError =>
-            throw new RuntimeException(err.message) // FIXME: Better exception type
+          import CoffeeScriptEngine._
+
+          Await.result(resultFuture, jseTimeout.duration) match {
+            case CompileSuccess =>
+            case err: CodeError =>
+              val pos = new Position {
+                def line: Maybe[Integer] = Maybe.just(err.lineNumber)
+                def offset: Maybe[Integer] = Maybe.just(err.lineOffset)
+                def lineContent: String = err.lineContent
+                def pointer: Maybe[Integer] = offset
+                def pointerSpace: Maybe[String] = Maybe.just(
+                  lineContent.take(pointer.get).map {
+                    case '\t' => '\t'
+                    case x => ' '
+                  })
+                def sourceFile: Maybe[File] = Maybe.just(input)
+                def sourcePath: Maybe[String] = Maybe.just(input.getPath)
+              }
+              webReporter.log(pos, err.message, Severity.Error)
+            case err: GenericError =>
+              throw new RuntimeException(err.message) // FIXME: Better exception type
+          }
+        }
+
+        webReporter.printSummary()
+        if (webReporter.hasErrors) {
+          throw new RuntimeException("CoffeeScript failure") // TODO: Proper exception
         }
       }
+    },
+    copyResources in webConfig <<= (copyResources in webConfig).dependsOn(CoffeeScriptKeys.compile in webConfig),
+    // FIXME: Add dependency through an intermediate task in sbt-web?
+    compile in nonWebConfig <<= (compile in nonWebConfig).dependsOn(CoffeeScriptKeys.compile in webConfig)
 
-      webReporter.printSummary()
-      if (webReporter.hasErrors) {
-        throw new RuntimeException("CoffeeScript failure") // TODO: Proper exception
-      }
-    }
   )
 
+  def coffeeScriptSettings: Seq[Setting[_]] = Seq(
+    CoffeeScriptKeys.sourceFilter := GlobFilter("*.coffee") | GlobFilter("*.litcoffee")
+  ) ++ scopedSettings(WebKeys.Assets, Compile) ++ scopedSettings(WebKeys.TestAssets, Test)
 
 }
