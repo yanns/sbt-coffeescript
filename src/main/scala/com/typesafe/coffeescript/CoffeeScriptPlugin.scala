@@ -32,7 +32,13 @@ object CoffeeScriptEngine {
 
   sealed trait CompileResult
   case object CompileSuccess extends CompileResult
-  case class CompileError(message: String /* TODO , location: Option[Location]*/) extends CompileResult
+  case class GenericError(message: String) extends CompileResult
+  case class CodeError(
+    message: String,
+    lineContent: String,
+    lineNumber: Int,
+    lineOffset: Int
+  ) extends CompileResult
   // TODO: Other types of error, e.g. missing file
 
   def compile(input: File, output: File)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
@@ -65,7 +71,7 @@ object CoffeeScriptEngine {
     }
     val f = generateDriverFile()
 
-    //import DefaultJsonProtocol._
+    import DefaultJsonProtocol._
 
     val arg = JsObject(
       "input" -> JsString(input.getPath),
@@ -76,7 +82,14 @@ object CoffeeScriptEngine {
       case JsExecutionResult(0, _, _) =>
         CompileSuccess
       case JsExecutionResult(1, _, stderrBytes) =>
-        CompileError(new String(stderrBytes.toArray, "utf-8"))
+        GenericError(new String(stderrBytes.toArray, "utf-8"))
+      case JsExecutionResult(2, _, stderrBytes) =>
+        val errObj = (new String(stderrBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]
+        val message = errObj.fields("message").asInstanceOf[JsString].value
+        val lineCode = errObj.fields("lineContent").asInstanceOf[JsString].value
+        val lineNumber = errObj.fields("lineNumber").asInstanceOf[JsNumber].value.intValue
+        val lineOffset = errObj.fields("lineOffset").asInstanceOf[JsNumber].value.intValue
+        CodeError(message, lineCode, lineNumber, lineOffset)
       case unknown => throw new RuntimeException(s"Unknown JsExecutionResult: $unknown") // TODO: Exception type
     }
 
@@ -181,36 +194,23 @@ object CoffeeScriptPlugin extends Plugin {
 
           Try(Await.result(resultFuture, 5.seconds)) match {
             case Success(CompileSuccess) =>
-            case Success(CompileError(errObj)) =>
-              // TODO: Move JSON deserialization logic out of SBT part
-              //val message = errObj.getFields("Error")
-              def optToMaybe[T](opt: Option[T]): Maybe[T] = opt match {
-                case None => Maybe.nothing()
-                case Some(x) => Maybe.just(x)
-              }
+            case Success(err: CodeError) =>
               val pos = new Position {
-                val line: Maybe[Integer] = Maybe.just(new Integer(0))
-                  //Maybe.just(java.lang.Double.parseDouble(o.fields.get("line").get.toString()).toInt)
-                val offset: Maybe[Integer] = Maybe.just(new Integer(3))
-                  // Maybe.just(java.lang.Double.parseDouble(o.fields.get("character").get.toString()).toInt - 1)
-
-                val lineContent: String = "DUMMY-LINE-CONTENT"
-                // o.fields.get("evidence") match {
-                //   case Some(JsString(line)) => line
-                //   case _ => ""
-                // }
-
-                val pointer: Maybe[Integer] = offset
-                val pointerSpace: Maybe[String] = Maybe.just(
+                def line: Maybe[Integer] = Maybe.just(err.lineNumber)
+                def offset: Maybe[Integer] = Maybe.just(err.lineOffset)
+                def lineContent: String = err.lineContent
+                def pointer: Maybe[Integer] = offset
+                def pointerSpace: Maybe[String] = Maybe.just(
                   lineContent.take(pointer.get).map {
                     case '\t' => '\t'
                     case x => ' '
                   })
-
-                val sourceFile: Maybe[File] = Maybe.just(input)
-                val sourcePath: Maybe[String] = Maybe.just(input.getPath)
+                def sourceFile: Maybe[File] = Maybe.just(input)
+                def sourcePath: Maybe[String] = Maybe.just(input.getPath)
               }
-              webReporter.log(pos, "dummy message", Severity.Error)
+              webReporter.log(pos, err.message, Severity.Error)
+            case Success(err: GenericError) =>
+              throw new RuntimeException(err.message) // FIXME: Better exception type
           }
           //println(result.exitValue)
           //println(s"out: "+ new String(result.output.toArray, "utf-8"))

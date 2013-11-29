@@ -26,20 +26,27 @@ function makeParentDir(childPath) {
   makeParentDir(parentPath);
 }
 
-var errResult = null;
 try {
   var opts = JSON.parse(process.argv[2]);
-  var coffeeSourceBuffer = fs.readFileSync(opts.input)
-  var compileResult = CoffeeScript.compile(coffeeSourceBuffer.toString(), {sourceMap: false, fileName: opts.output});
+  var code = fs.readFileSync(opts.input).toString();
+  var compileResult;
+  try {
+    compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: opts.output});
+  } catch (err) {
+    // Handle compilation errors
+    if (!err.location) throw err;
+    var errResult = {};
+    errResult.message = err.message;
+    errResult.lineContent = code.split('\n')[err.location.first_line];
+    errResult.lineNumber = err.location.first_line;
+    errResult.lineOffset = err.location.first_column;
+    process.stderr.write(JSON.stringify(errResult));
+    process.exit(2);
+  }
   var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
   makeParentDir(opts.output);
   fs.writeFileSync(opts.output, compileResult)
 } catch (err) {
-  var errResult = {};
-  errResult.message = err.message;
-  if (err.location) errResult.location = err.location;
-}
-if (errResult) {
-  process.stderr.write(JSON.stringify(errResult));
+  process.stderr.write(err.toString());
   process.exit(1);
 }
