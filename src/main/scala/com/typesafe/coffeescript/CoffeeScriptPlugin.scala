@@ -26,7 +26,8 @@ object CoffeeScriptEngine {
 
   final case class Compilation(
     input: File,
-    output: File
+    output: File,
+    bare: Boolean
   )
 
   sealed trait CompileResult
@@ -73,7 +74,8 @@ object CoffeeScriptEngine {
 
     val arg = JsObject(
       "input" -> JsString(opts.input.getPath),
-      "output" -> JsString(opts.output.getPath)
+      "output" -> JsString(opts.output.getPath),
+      "bare" -> JsBoolean(opts.bare)
     ).compactPrint
 
     def decodeJsonResult(result: JsObject): CompileResult = {
@@ -113,7 +115,9 @@ object CoffeeScriptEngine {
     try {
       val resultFuture = compileFile(Compilation(
         input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
-        output = new File("/p/play/js/sbt-coffeescript/target/test.js")))
+        output = new File("/p/play/js/sbt-coffeescript/target/test.js"),
+        bare = false
+      ))
       val result = Await.result(resultFuture, 5.seconds)
       println(result)
     } finally {
@@ -140,7 +144,7 @@ object CoffeeScriptPlugin extends Plugin {
     val compilations = SettingKey[Seq[Compilation]](cs("compilations"), "Compilation instructions for the CoffeeScript compiler.")
     //val join = SettingKey[File](cs("join"), "If specified, joins.")
     //val map = SettingKey[Boolean](cs("map"), "Generate source maps")
-    //val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function")
+    val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function")
     //val literate = SettingKey[Boolean](cs("literate"), "If true, force the code to be parsed as Literate CoffeeScript. Not needed if files have a .litcoffee extension.")
     //val tokens = 
   }
@@ -160,7 +164,11 @@ object CoffeeScriptPlugin extends Plugin {
             val dotIndex = name.lastIndexOf('.')
             if (dotIndex == -1) name else name.substring(0, dotIndex)
           }
-          Compilation(inFile, new File(parent, dedotted + ".js"))
+          Compilation(
+            input = inFile,
+            output = new File(parent, dedotted + ".js"),
+            bare = CoffeeScriptKeys.bare.value
+          )
       }
     },
     (CoffeeScriptKeys.compile in webConfig) := {
@@ -171,14 +179,15 @@ object CoffeeScriptPlugin extends Plugin {
 
       val compilations = (CoffeeScriptKeys.compilations in webConfig).value
 
-      val log = streams.value.log
       val sourceCount = compilations.length
       if (sourceCount > 0) {
+
+        val log = streams.value.log
         val sourceString = if (sourceCount == 1) "source" else "sources"
         log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
+
         val webReporter = WebKeys.reporter.value
         webReporter.reset()
-        // FIXME: Proper scoping of mappings
 
         for (compilation <- compilations) {
 
@@ -213,13 +222,14 @@ object CoffeeScriptPlugin extends Plugin {
       }
     },
     copyResources in webConfig <<= (copyResources in webConfig).dependsOn(CoffeeScriptKeys.compile in webConfig),
-    // FIXME: Add dependency through an intermediate task in sbt-web?
+    // TODO: Add dependency through an intermediate task in sbt-web?
     compile in nonWebConfig <<= (compile in nonWebConfig).dependsOn(CoffeeScriptKeys.compile in webConfig)
 
   )
 
   def coffeeScriptSettings: Seq[Setting[_]] = Seq(
-    CoffeeScriptKeys.sourceFilter := GlobFilter("*.coffee") | GlobFilter("*.litcoffee")
+    CoffeeScriptKeys.sourceFilter := GlobFilter("*.coffee") | GlobFilter("*.litcoffee"),
+    CoffeeScriptKeys.bare := false
   ) ++ scopedSettings(WebKeys.Assets, Compile) ++ scopedSettings(WebKeys.TestAssets, Test)
 
 }

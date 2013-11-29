@@ -46,7 +46,7 @@ function compileFile(fileOptions) {
     var code = fs.readFileSync(opts.input).toString();
     var compileResult;
     try {
-      compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: opts.output});
+      compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: opts.output, bare: opts.bare});
     } catch (err) {
       // Handle compilation errors
       if (!err.location) throw err;
@@ -59,7 +59,7 @@ function compileFile(fileOptions) {
       };
     }
     var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
-    makeParentDir(opts.output);
+    makeParentDirs(opts.output);
     fs.writeFileSync(opts.output, compileResult);
     return {
       result: 'CompileSuccess'
