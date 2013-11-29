@@ -3,44 +3,47 @@
  */
 package com.typesafe.sbt.coffeescript
 
-import com.typesafe.js.sbt.WebPlugin.WebKeys
+import akka.actor.{ ActorRefFactory, ActorSystem }
+import akka.pattern.ask
+import akka.util.Timeout
+import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
 import com.typesafe.jse.Engine.JsExecutionResult
+import com.typesafe.js.sbt.WebPlugin.WebKeys
 import com.typesafe.jse.sbt.JsEnginePlugin.JsEngineKeys
 import com.typesafe.jse.sbt.JsEnginePlugin
+import java.io.File
+import org.apache.commons.io.{ FileUtils, IOUtils }
 import sbt._
 import sbt.Keys._
-import scala.concurrent.Await
+import scala.collection.immutable
+import scala.concurrent.{ Await, Future }
+import scala.concurrent.duration._
 import scala.util.{ Failure, Success, Try }
 import spray.json._
 import xsbti.{ Maybe, Position, Severity }
 
 object CoffeeScriptEngine {
-  import akka.actor.{ ActorRefFactory, ActorSystem }
-  import akka.pattern.ask
-  import akka.util.Timeout
-  import com.typesafe.jse.Engine.JsExecutionResult
-  import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
-  import java.io.File
-  import scala.collection.immutable
-  import scala.concurrent.{ Await, Future }
-  import scala.concurrent.duration._
-  import scala.concurrent.ExecutionContext.Implicits.global
+
+  final case class Compilation(
+    input: File,
+    output: File
+  )
 
   sealed trait CompileResult
-  case object CompileSuccess extends CompileResult
-  case class GenericError(message: String) extends CompileResult
-  case class CodeError(
+  final case object CompileSuccess extends CompileResult
+  final case class GenericError(message: String) extends CompileResult
+  final case class CodeError(
     message: String,
     lineContent: String,
     lineNumber: Int,
     lineOffset: Int
   ) extends CompileResult
 
-  def compile(input: File, output: File)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
+  // TODO: Share a single Engine instance between compilations
+  def compileFile(opts: Compilation)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
     val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
 
     def generateDriverFile(): File = {
-      import org.apache.commons.io._
       val file = File.createTempFile("sbt-coffeescript-driver", ".js") // TODO: Use SBT temp directory?
       file.deleteOnExit()
 
@@ -69,8 +72,8 @@ object CoffeeScriptEngine {
     import DefaultJsonProtocol._
 
     val arg = JsObject(
-      "input" -> JsString(input.getPath),
-      "output" -> JsString(output.getPath)
+      "input" -> JsString(opts.input.getPath),
+      "output" -> JsString(opts.output.getPath)
     ).compactPrint
 
     def decodeJsonResult(result: JsObject): CompileResult = {
@@ -90,6 +93,7 @@ object CoffeeScriptEngine {
       }
     }
 
+    import actorRefFactory.dispatcher
     (engine ? Engine.ExecuteJs(f, immutable.Seq(arg))).mapTo[JsExecutionResult].map {
       case JsExecutionResult(0, stdoutBytes, _) =>
         val jsonResult = (new String(stdoutBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]
@@ -107,9 +111,9 @@ object CoffeeScriptEngine {
     implicit val system = ActorSystem("jse-system")
     implicit val timeout = Timeout(5.seconds)
     try {
-      val resultFuture = compile(
+      val resultFuture = compileFile(Compilation(
         input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
-        output = new File("/p/play/js/sbt-coffeescript/target/test.js"))
+        output = new File("/p/play/js/sbt-coffeescript/target/test.js")))
       val result = Await.result(resultFuture, 5.seconds)
       println(result)
     } finally {
@@ -124,6 +128,8 @@ object CoffeeScriptEngine {
 
 object CoffeeScriptPlugin extends Plugin {
 
+  import CoffeeScriptEngine._
+
   private def cs(setting: String) = s"coffee-script-$setting"
 
   object CoffeeScriptKeys {
@@ -131,7 +137,7 @@ object CoffeeScriptPlugin extends Plugin {
     val sourceFilter = SettingKey[FileFilter](cs("filter"), "A filter matching CoffeeScript sources.")
 
     // http://coffeescript.org/#usage
-    val mappings = SettingKey[Seq[(File,File)]](cs("mappings"), "Mappings from CoffeeScript source files to compiled JavaScript files.")
+    val compilations = SettingKey[Seq[Compilation]](cs("compilations"), "Compilation instructions for the CoffeeScript compiler.")
     //val join = SettingKey[File](cs("join"), "If specified, joins.")
     //val map = SettingKey[Boolean](cs("map"), "Generate source maps")
     //val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function")
@@ -140,7 +146,7 @@ object CoffeeScriptPlugin extends Plugin {
   }
 
   private def scopedSettings(webConfig: Configuration, nonWebConfig: Configuration): Seq[Setting[_]] = Seq(
-    (CoffeeScriptKeys.mappings in webConfig) := {
+    (CoffeeScriptKeys.compilations in webConfig) := {
       // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
       val sourceDir = (sourceDirectory in webConfig).value
       val sources = (sourceDir ** (CoffeeScriptKeys.sourceFilter in webConfig).value).get
@@ -154,7 +160,7 @@ object CoffeeScriptPlugin extends Plugin {
             val dotIndex = name.lastIndexOf('.')
             if (dotIndex == -1) name else name.substring(0, dotIndex)
           }
-          (inFile, new File(parent, dedotted + ".js"))
+          Compilation(inFile, new File(parent, dedotted + ".js"))
       }
     },
     (CoffeeScriptKeys.compile in webConfig) := {
@@ -163,10 +169,10 @@ object CoffeeScriptPlugin extends Plugin {
       implicit val jseSystem = JsEnginePlugin.jseSystem
       implicit val jseTimeout = JsEnginePlugin.jseTimeout
 
-      val mappings = (CoffeeScriptKeys.mappings in webConfig).value
+      val compilations = (CoffeeScriptKeys.compilations in webConfig).value
 
       val log = streams.value.log
-      val sourceCount = mappings.length
+      val sourceCount = compilations.length
       if (sourceCount > 0) {
         val sourceString = if (sourceCount == 1) "source" else "sources"
         log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
@@ -174,11 +180,9 @@ object CoffeeScriptPlugin extends Plugin {
         webReporter.reset()
         // FIXME: Proper scoping of mappings
 
-        for ((input, output) <- mappings) {
+        for (compilation <- compilations) {
 
-          val resultFuture = CoffeeScriptEngine.compile(input, output)
-
-          import CoffeeScriptEngine._
+          val resultFuture = compileFile(compilation)
 
           Await.result(resultFuture, jseTimeout.duration) match {
             case CompileSuccess =>
@@ -193,8 +197,8 @@ object CoffeeScriptPlugin extends Plugin {
                     case '\t' => '\t'
                     case x => ' '
                   })
-                def sourceFile: Maybe[File] = Maybe.just(input)
-                def sourcePath: Maybe[String] = Maybe.just(input.getPath)
+                def sourceFile: Maybe[File] = Maybe.just(compilation.input)
+                def sourcePath: Maybe[String] = Maybe.just(compilation.input.getPath)
               }
               webReporter.log(pos, err.message, Severity.Error)
             case err: GenericError =>
