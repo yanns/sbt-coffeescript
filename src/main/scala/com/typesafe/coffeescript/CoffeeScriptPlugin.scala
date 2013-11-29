@@ -4,10 +4,12 @@
 package com.typesafe.sbt.coffeescript
 
 import com.typesafe.js.sbt.WebPlugin.WebKeys
+import com.typesafe.jse.Engine.JsExecutionResult
 import com.typesafe.jse.sbt.JsEnginePlugin.JsEngineKeys
 import com.typesafe.jse.sbt.JsEnginePlugin
 import sbt._
 import sbt.Keys._
+import scala.concurrent.Await
 import scala.util.{ Failure, Success, Try }
 import spray.json._
 import xsbti.{ Maybe, Position, Severity }
@@ -23,12 +25,6 @@ object CoffeeScriptEngine {
   import scala.concurrent.{ Await, Future }
   import scala.concurrent.duration._
   import scala.concurrent.ExecutionContext.Implicits.global
-
-  // import akka.Actor
-
-  // class CoffeeScriptActor extends Actor {
-
-  // }
 
   sealed trait CompileResult
   case object CompileSuccess extends CompileResult
@@ -128,43 +124,27 @@ object CoffeeScriptEngine {
 
 object CoffeeScriptPlugin extends Plugin {
 
-  private def prefixed(setting: String) = s"coffeescript-$setting"
-  //val engineType = JsEngineKeys.engineType
-  //val parallelism = JsEngineKeys.parallelism
-  //val sources = SettingKey[Seq[File]](prefixed("sources"), "The CoffeeScript source files to compile.")
-  //val output = SettingKey[File](prefixed("output"), "The directory to write compiled JavaScript files into.")
+  private def cs(setting: String) = s"coffee-script-$setting"
 
   object CoffeeScriptKeys {
-    val coffeeScript = TaskKey[Unit]("coffeescript", "Compile CoffeeScript sources into JavaScript.")
-    val coffeeScriptFilter = SettingKey[FileFilter](prefixed("filter"), "A filter matching CoffeeScript sources.")
-    //val coffeeScriptSources = 
+    val compile = TaskKey[Unit](cs("compile"), "Compile CoffeeScript sources into JavaScript.")
+    val sourceFilter = SettingKey[FileFilter](cs("filter"), "A filter matching CoffeeScript sources.")
+
     // http://coffeescript.org/#usage
-    val mappings = SettingKey[Seq[(File,File)]](prefixed("mappings"), "Mappings from CoffeeScript source files to compiled JavaScript files.")
-    //val join = SettingKey[File](prefixed("join"), "If specified, joins.")
-    //val map = SettingKey[Boolean](prefixed("map"), "Generate source maps")
-    //val bare = SettingKey[Boolean](prefixed("bare"), "Compiles JavaScript that isn't wrapped in a function")
-    //val literate = SettingKey[Boolean](prefixed("literate"), "If true, force the code to be parsed as Literate CoffeeScript. Not needed if files have a .litcoffee extension.")
+    val mappings = SettingKey[Seq[(File,File)]](cs("mappings"), "Mappings from CoffeeScript source files to compiled JavaScript files.")
+    //val join = SettingKey[File](cs("join"), "If specified, joins.")
+    //val map = SettingKey[Boolean](cs("map"), "Generate source maps")
+    //val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function")
+    //val literate = SettingKey[Boolean](cs("literate"), "If true, force the code to be parsed as Literate CoffeeScript. Not needed if files have a .litcoffee extension.")
     //val tokens = 
   }
 
-  import CoffeeScriptKeys._
-
-  // val coffeeScriptSettings = Seq(
-
-  // )
-
   def coffeeScriptSettings: Seq[Setting[_]] = Seq(
-    coffeeScriptFilter := GlobFilter("*.coffee") | GlobFilter("*.litcoffee"),
-    //engineType := EngineType.JsEngineKeys.Node,
-    // sources := {
-    //   val baseDir = (sourceDirectory in Assets).value / "coffeescript"
-    //   (baseDir / "**.coffee") ++ (baseDir / "**.litcoffee")
-    // },
-    // outputDirectory := (sourceManaged in Assets).value / "javascript"
-    (mappings in WebKeys.Assets) := {
+    CoffeeScriptKeys.sourceFilter := GlobFilter("*.coffee") | GlobFilter("*.litcoffee"),
+    (CoffeeScriptKeys.mappings in WebKeys.Assets) := {
       // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
       val sourceDir = (sourceDirectory in WebKeys.Assets).value
-      val sources = (sourceDir ** coffeeScriptFilter.value).get
+      val sources = (sourceDir ** CoffeeScriptKeys.sourceFilter.value).get
       val outputDir = (resourceManaged in WebKeys.Assets).value
       sources x rebase(sourceDir, outputDir) map {
         case (inFile, outFile) =>
@@ -178,58 +158,42 @@ object CoffeeScriptPlugin extends Plugin {
           (inFile, new File(parent, dedotted + ".js"))
       }
     },
-    coffeeScript := {
-      import akka.actor.{ ActorRefFactory, ActorSystem }
-      import akka.pattern.ask
-      import akka.util.Timeout
-      import com.typesafe.jse.Engine.JsExecutionResult
-      import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
-      import java.io.File
-      import scala.collection.immutable
-      import scala.concurrent.{ Await, Future }
-      import scala.concurrent.duration._
-      import scala.concurrent.ExecutionContext.Implicits.global
+    CoffeeScriptKeys.compile := {
+
+      // TODO: Think about lifecycle (start/stop) of ActorSystem
+      implicit val jseSystem = JsEnginePlugin.jseSystem
+      implicit val jseTimeout = JsEnginePlugin.jseTimeout
+
       val webReporter = WebKeys.reporter.value
       webReporter.reset()
-      for ((input, output) <- (mappings in WebKeys.Assets).value) { // FIXME: Proper scoping
-        implicit val jseSystem = JsEnginePlugin.jseSystem
-        implicit val jseTimeout = JsEnginePlugin.jseTimeout
-        //implicit val system = ActorSystem("jse-system")
-        //implicit val timeout = Timeout(5.seconds)
-        try {
-          //println(s"Compiling $input to $output.")
-          val resultFuture = CoffeeScriptEngine.compile(input, output)
-          import CoffeeScriptEngine._
+      // FIXME: Proper scoping of mappings
+      val mappings = (CoffeeScriptKeys.mappings in WebKeys.Assets).value
 
-          Try(Await.result(resultFuture, 5.seconds)) match {
-            case Success(CompileSuccess) =>
-            case Success(err: CodeError) =>
-              val pos = new Position {
-                def line: Maybe[Integer] = Maybe.just(err.lineNumber)
-                def offset: Maybe[Integer] = Maybe.just(err.lineOffset)
-                def lineContent: String = err.lineContent
-                def pointer: Maybe[Integer] = offset
-                def pointerSpace: Maybe[String] = Maybe.just(
-                  lineContent.take(pointer.get).map {
-                    case '\t' => '\t'
-                    case x => ' '
-                  })
-                def sourceFile: Maybe[File] = Maybe.just(input)
-                def sourcePath: Maybe[String] = Maybe.just(input.getPath)
-              }
-              webReporter.log(pos, err.message, Severity.Error)
-            case Success(err: GenericError) =>
-              throw new RuntimeException(err.message) // FIXME: Better exception type
-          }
-          //println(result.exitValue)
-          //println(s"out: "+ new String(result.output.toArray, "utf-8"))
-          //println(s"err: "+ new String(result.error.toArray, "utf-8"))
-        } finally {
-          //println("Running shutdown")
-          //system.shutdown()
-          //println("Waiting for termination")
-          //system.awaitTermination()
-          //println("Terminated")
+      for ((input, output) <- mappings) {
+
+        val resultFuture = CoffeeScriptEngine.compile(input, output)
+
+        import CoffeeScriptEngine._
+
+        Await.result(resultFuture, jseTimeout.duration) match {
+          case CompileSuccess =>
+          case err: CodeError =>
+            val pos = new Position {
+              def line: Maybe[Integer] = Maybe.just(err.lineNumber)
+              def offset: Maybe[Integer] = Maybe.just(err.lineOffset)
+              def lineContent: String = err.lineContent
+              def pointer: Maybe[Integer] = offset
+              def pointerSpace: Maybe[String] = Maybe.just(
+                lineContent.take(pointer.get).map {
+                  case '\t' => '\t'
+                  case x => ' '
+                })
+              def sourceFile: Maybe[File] = Maybe.just(input)
+              def sourcePath: Maybe[String] = Maybe.just(input.getPath)
+            }
+            webReporter.log(pos, err.message, Severity.Error)
+          case err: GenericError =>
+            throw new RuntimeException(err.message) // FIXME: Better exception type
         }
       }
 
