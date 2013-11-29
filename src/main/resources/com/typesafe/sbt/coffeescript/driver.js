@@ -17,36 +17,49 @@ for(s=[],e=0,n=o.length;n>e;e++)r=o[e],i=r.type,__indexOf.call(t,i)>=0&&s.push(r
 var CoffeeScript = this.CoffeeScript;
 fs = require('fs');
 path = require('path');
-//process = require('process');
 
-function makeParentDir(childPath) {
-  var parentPath = path.dirname(childPath);
-  if (fs.existsSync(parentPath)) return;
-  fs.mkdirSync(parentPath);
-  makeParentDir(parentPath);
-}
 
-try {
-  var opts = JSON.parse(process.argv[2]);
-  var code = fs.readFileSync(opts.input).toString();
-  var compileResult;
-  try {
-    compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: opts.output});
-  } catch (err) {
-    // Handle compilation errors
-    if (!err.location) throw err;
-    var errResult = {};
-    errResult.message = err.message;
-    errResult.lineContent = code.split('\n')[err.location.first_line];
-    errResult.lineNumber = err.location.first_line;
-    errResult.lineOffset = err.location.first_column;
-    process.stderr.write(JSON.stringify(errResult));
-    process.exit(2);
+// Given options, compile a file and produce a result
+function compileFile(fileOptions) {
+
+  function makeParentDir(childPath) {
+    var parentPath = path.dirname(childPath);
+    if (fs.existsSync(parentPath)) return;
+    fs.mkdirSync(parentPath);
+    makeParentDir(parentPath);
   }
-  var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
-  makeParentDir(opts.output);
-  fs.writeFileSync(opts.output, compileResult)
-} catch (err) {
-  process.stderr.write(err.toString());
-  process.exit(1);
+
+  try {
+    var code = fs.readFileSync(opts.input).toString();
+    var compileResult;
+    try {
+      compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: opts.output});
+    } catch (err) {
+      // Handle compilation errors
+      if (!err.location) throw err;
+      return {
+        result: 'CodeError',
+        message: err.message,
+        lineContent: code.split('\n')[err.location.first_line],
+        lineNumber: err.location.first_line,
+        lineOffset: err.location.first_column
+      };
+    }
+    var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
+    makeParentDir(opts.output);
+    fs.writeFileSync(opts.output, compileResult);
+    return {
+      result: 'CompileSuccess'
+    };
+  } catch (err) {
+    return {
+      result: 'GenericError',
+      message: err.toString()
+    };
+  }
+
 }
+
+var opts = JSON.parse(process.argv[2]);
+var result = compileFile(opts);
+process.stdout.write(JSON.stringify(result));

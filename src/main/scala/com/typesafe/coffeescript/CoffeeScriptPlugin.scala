@@ -39,7 +39,6 @@ object CoffeeScriptEngine {
     lineNumber: Int,
     lineOffset: Int
   ) extends CompileResult
-  // TODO: Other types of error, e.g. missing file
 
   def compile(input: File, output: File)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
     val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
@@ -78,19 +77,32 @@ object CoffeeScriptEngine {
       "output" -> JsString(output.getPath)
     ).compactPrint
 
+    def decodeJsonResult(result: JsObject): CompileResult = {
+      result.fields("result").asInstanceOf[JsString].value match {
+        case "CompileSuccess" =>
+          CompileSuccess
+        case "CodeError" =>
+          val message = result.fields("message").asInstanceOf[JsString].value
+          val lineCode = result.fields("lineContent").asInstanceOf[JsString].value
+          val lineNumber = result.fields("lineNumber").asInstanceOf[JsNumber].value.intValue
+          val lineOffset = result.fields("lineOffset").asInstanceOf[JsNumber].value.intValue
+          CodeError(message, lineCode, lineNumber, lineOffset)
+        case "GenericError" =>
+          GenericError(result.fields("message").asInstanceOf[JsString].value)
+        case _ =>
+          throw new RuntimeException(s"Unknown JSON result running CoffeeScript driver: $result") // FIXME: Better Exception type
+      }
+    }
+
     (engine ? Engine.ExecuteJs(f, immutable.Seq(arg))).mapTo[JsExecutionResult].map {
-      case JsExecutionResult(0, _, _) =>
-        CompileSuccess
-      case JsExecutionResult(1, _, stderrBytes) =>
-        GenericError(new String(stderrBytes.toArray, "utf-8"))
-      case JsExecutionResult(2, _, stderrBytes) =>
-        val errObj = (new String(stderrBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]
-        val message = errObj.fields("message").asInstanceOf[JsString].value
-        val lineCode = errObj.fields("lineContent").asInstanceOf[JsString].value
-        val lineNumber = errObj.fields("lineNumber").asInstanceOf[JsNumber].value.intValue
-        val lineOffset = errObj.fields("lineOffset").asInstanceOf[JsNumber].value.intValue
-        CodeError(message, lineCode, lineNumber, lineOffset)
-      case unknown => throw new RuntimeException(s"Unknown JsExecutionResult: $unknown") // TODO: Exception type
+      case JsExecutionResult(0, stdoutBytes, _) =>
+        val jsonResult = (new String(stdoutBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]
+        decodeJsonResult(jsonResult)
+      case result =>
+        val exitValue = result.exitValue
+        val stdout = new String(result.output.toArray, "utf-8")
+        val stderr = new String(result.error.toArray, "utf-8")
+        throw new RuntimeException(s"Unexpected result running CoffeeScript driver: exit value: $exitValue, stdout: $stdout, stderr: $stderr")
     }
 
   }
@@ -104,9 +116,6 @@ object CoffeeScriptEngine {
         output = new File("/p/play/js/sbt-coffeescript/target/test.js"))
       val result = Await.result(resultFuture, 5.seconds)
       println(result)
-      //println(result.exitCode)
-      //println(s"out: "+ new String(result.output.toArray, "utf-8"))
-      //println(s"err: "+ new String(result.error.toArray, "utf-8"))
     } finally {
       println("Running shutdown")
       system.shutdown()
