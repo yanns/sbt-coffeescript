@@ -43,10 +43,10 @@ function compileFile(fileOptions) {
   }
 
   try {
-    var code = fs.readFileSync(opts.input).toString();
+    var code = fs.readFileSync(fileOptions.input).toString();
     var compileResult;
     try {
-      compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: opts.output, bare: opts.bare});
+      compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: fileOptions.output, bare: fileOptions.bare});
     } catch (err) {
       // Handle compilation errors
       if (!err.location) throw err;
@@ -59,8 +59,8 @@ function compileFile(fileOptions) {
       };
     }
     var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
-    makeParentDirs(opts.output);
-    fs.writeFileSync(opts.output, compileResult);
+    makeParentDirs(fileOptions.output);
+    fs.writeFileSync(fileOptions.output, compileResult);
     return {
       result: 'CompileSuccess'
     };
