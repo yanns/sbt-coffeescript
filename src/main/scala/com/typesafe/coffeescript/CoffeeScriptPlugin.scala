@@ -149,6 +149,9 @@ object CoffeeScriptPlugin extends Plugin {
     //val tokens = 
   }
 
+  // FIXME: Load from disk
+  private val singletonRawCache = new WorkCache[Compilation]()
+
   private def scopedSettings(webConfig: Configuration, nonWebConfig: Configuration): Seq[Setting[_]] = Seq(
     (CoffeeScriptKeys.compilations in webConfig) := {
       // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
@@ -157,7 +160,7 @@ object CoffeeScriptPlugin extends Plugin {
       val outputDir = (resourceManaged in webConfig).value
       sources x rebase(sourceDir, outputDir) map {
         case (inFile, outFile) =>
-          println(inFile, outFile)
+          //println(inFile, outFile)
           val parent = outFile.getParent
           val name = outFile.getName
           val dedotted = {
@@ -173,13 +176,24 @@ object CoffeeScriptPlugin extends Plugin {
     },
     (CoffeeScriptKeys.compile in webConfig) := {
 
+      val flatWorkCache = {
+        val rawCache = singletonRawCache
+        val workDef = new FlatWorkDef[Compilation] {
+          private val requestedWork = (CoffeeScriptKeys.compilations in webConfig).value.to[Vector]
+          def allPossibleWork = requestedWork
+          def fileDepsForWork(c: Compilation): Set[File] = {
+            requestedWork.find(_ == c).map((c: Compilation) => Set(c.input, c.output)).get
+          }
+        }
+        new FlatWorkCache(rawCache, workDef)
+      }
+
       // TODO: Think about lifecycle (start/stop) of ActorSystem
       implicit val jseSystem = JsEnginePlugin.jseSystem
       implicit val jseTimeout = JsEnginePlugin.jseTimeout
 
-      val compilations = (CoffeeScriptKeys.compilations in webConfig).value
-
-      val sourceCount = compilations.length
+      val compilationsToDo = flatWorkCache.workToDo
+      val sourceCount = compilationsToDo.length
       if (sourceCount > 0) {
 
         val log = streams.value.log
@@ -189,12 +203,13 @@ object CoffeeScriptPlugin extends Plugin {
         val webReporter = WebKeys.reporter.value
         webReporter.reset()
 
-        for (compilation <- compilations) {
+        for (compilation <- compilationsToDo) {
 
           val resultFuture = compileFile(compilation)
 
           Await.result(resultFuture, jseTimeout.duration) match {
             case CompileSuccess =>
+              flatWorkCache.recordWorkDone(compilation)
             case err: CodeError =>
               val pos = new Position {
                 def line: Maybe[Integer] = Maybe.just(err.lineNumber)
