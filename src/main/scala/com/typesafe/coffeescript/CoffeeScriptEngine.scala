@@ -41,7 +41,11 @@ object CoffeeScriptEngine {
   ) extends CompileResult
 
   // TODO: Share a single Engine instance between compilations
-  def compileFile(opts: Compilation)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
+  def compileFile(opts: Compilation)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): CompileResult = {
+    Await.result(compileFileFuture(opts), timeout.duration)
+  }
+
+  def compileFileFuture(opts: Compilation)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
     val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
 
     def generateDriverFile(): File = {
@@ -113,12 +117,11 @@ object CoffeeScriptEngine {
     implicit val system = ActorSystem("jse-system")
     implicit val timeout = Timeout(5.seconds)
     try {
-      val resultFuture = compileFile(Compilation(
+      val result = compileFile(Compilation(
         input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
         output = new File("/p/play/js/sbt-coffeescript/target/test.js"),
         bare = false
       ))
-      val result = Await.result(resultFuture, 5.seconds)
       println(result)
     } finally {
       println("Running shutdown")

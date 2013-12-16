@@ -92,10 +92,6 @@ object CoffeeScriptPlugin extends Plugin {
         new FlatWorkCache(rawCache, workDef)
       }
 
-      // TODO: Think about lifecycle (start/stop) of ActorSystem
-      implicit val jseSystem = JsEnginePlugin.jseSystem
-      implicit val jseTimeout = JsEnginePlugin.jseTimeout
-
       val compilationsToDo = flatWorkCache.workToDo
       val sourceCount = compilationsToDo.length
       if (sourceCount > 0) {
@@ -107,11 +103,13 @@ object CoffeeScriptPlugin extends Plugin {
         val webReporter = WebKeys.reporter.value
         webReporter.reset()
 
+        // TODO: Think about lifecycle (start/stop) of ActorSystem
+        implicit val jseSystem = JsEnginePlugin.jseSystem
+        implicit val jseTimeout = JsEnginePlugin.jseTimeout
+
         for (compilation <- compilationsToDo) {
 
-          val resultFuture = compileFile(compilation)
-
-          Await.result(resultFuture, jseTimeout.duration) match {
+          compileFile(compilation) match {
             case CompileSuccess =>
               flatWorkCache.recordWorkDone(compilation)
             case err: CodeError =>
