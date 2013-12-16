@@ -34,7 +34,7 @@ object CoffeeScriptPlugin extends Plugin {
     val outputDirectory = SettingKey[File](cs("output-directory"), "The directory to output compiled JavaScript files.")
 
     // http://coffeescript.org/#usage
-    val compilations = TaskKey[Seq[Compilation]](cs("compilations"), "Compilation instructions for the CoffeeScript compiler.")
+    val compilations = TaskKey[Seq[CompileArgs]](cs("compilations"), "CompileArgs instructions for the CoffeeScript compiler.")
     //val join = SettingKey[File](cs("join"), "If specified, joins.")
     //val map = SettingKey[Boolean](cs("map"), "Generate source maps")
     val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function")
@@ -43,8 +43,14 @@ object CoffeeScriptPlugin extends Plugin {
   }
 
   // FIXME: Load from disk
-  private val singletonRawCache = new WorkCache[Compilation]()
+  private val singletonRawCache = new WorkCache[CompileArgs]()
 
+  /**
+   * Use this to import CoffeeScript settings into a specific scope,
+   * e.g. `Project.inConfig(WebKeys.Assets)(scopedSettings)`. These settings intentionally
+   * have no dependency on sbt-web settings or directories, making it possible to use these
+   * settings for non-web CoffeeScript compilation.
+   */
   def scopedSettings: Seq[Setting[_]] = Seq(
     CoffeeScriptKeys.bare := false,
     includeFilter in CoffeeScriptKeys.compile := GlobFilter("*.coffee") | GlobFilter("*.litcoffee"),
@@ -67,14 +73,17 @@ object CoffeeScriptPlugin extends Plugin {
         //println(inFile, outFile)
         val parent = outFile.getParent
         val name = outFile.getName
-        val dedotted = {
-          val dotIndex = name.lastIndexOf('.')
-          if (dotIndex == -1) name else name.substring(0, dotIndex)
+        val dotIndex = name.lastIndexOf('.')
+        val (baseName, extension) = if (dotIndex == -1) {
+          (name, "")
+        } else {
+          (name.substring(0, dotIndex), name.substring(dotIndex + 1))
         }
-        Compilation(
+        CompileArgs(
           input = inFile,
-          output = new File(parent, dedotted + ".js"),
-          bare = CoffeeScriptKeys.bare.value
+          output = new File(parent, baseName + ".js"),
+          bare = CoffeeScriptKeys.bare.value,
+          literate = extension == "litcoffee"
         )
       }
     },
@@ -82,11 +91,11 @@ object CoffeeScriptPlugin extends Plugin {
 
       val flatWorkCache = {
         val rawCache = singletonRawCache
-        val workDef = new FlatWorkDef[Compilation] {
+        val workDef = new FlatWorkDef[CompileArgs] {
           private val requestedWork = CoffeeScriptKeys.compilations.value.to[Vector]
           def allPossibleWork = requestedWork
-          def fileDepsForWork(c: Compilation): Set[File] = {
-            requestedWork.find(_ == c).map((c: Compilation) => Set(c.input, c.output)).get
+          def fileDepsForWork(c: CompileArgs): Set[File] = {
+            requestedWork.find(_ == c).map((c: CompileArgs) => Set(c.input, c.output)).get
           }
         }
         new FlatWorkCache(rawCache, workDef)

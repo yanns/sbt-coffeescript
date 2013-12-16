@@ -24,10 +24,11 @@ import xsbti.{ Maybe, Position, Severity }
 
 object CoffeeScriptEngine {
 
-  final case class Compilation(
+  final case class CompileArgs(
     input: File,
     output: File,
-    bare: Boolean
+    bare: Boolean,
+    literate: Boolean
   )
 
   sealed trait CompileResult
@@ -41,11 +42,11 @@ object CoffeeScriptEngine {
   ) extends CompileResult
 
   // TODO: Share a single Engine instance between compilations
-  def compileFile(opts: Compilation)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): CompileResult = {
+  def compileFile(opts: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): CompileResult = {
     Await.result(compileFileFuture(opts), timeout.duration)
   }
 
-  def compileFileFuture(opts: Compilation)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
+  def compileFileFuture(opts: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
     val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
 
     def generateDriverFile(): File = {
@@ -79,7 +80,8 @@ object CoffeeScriptEngine {
     val arg = JsObject(
       "input" -> JsString(opts.input.getPath),
       "output" -> JsString(opts.output.getPath),
-      "bare" -> JsBoolean(opts.bare)
+      "bare" -> JsBoolean(opts.bare),
+      "literate" -> JsBoolean(opts.bare)
     ).compactPrint
 
     def decodeJsonResult(result: JsObject): CompileResult = {
@@ -117,10 +119,11 @@ object CoffeeScriptEngine {
     implicit val system = ActorSystem("jse-system")
     implicit val timeout = Timeout(5.seconds)
     try {
-      val result = compileFile(Compilation(
+      val result = compileFile(CompileArgs(
         input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
         output = new File("/p/play/js/sbt-coffeescript/target/test.js"),
-        bare = false
+        bare = false,
+        literate = false
       ))
       println(result)
     } finally {

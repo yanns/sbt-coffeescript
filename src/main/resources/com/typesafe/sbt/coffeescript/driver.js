@@ -43,10 +43,16 @@ function compileFile(fileOptions) {
   }
 
   try {
+    var compileOpts = {
+      sourceMap: false,
+      fileName: fileOptions.output,
+      bare: fileOptions.bare,
+      literate: fileOptions.literate
+    };
     var code = fs.readFileSync(fileOptions.input).toString();
     var compileResult;
     try {
-      compileResult = CoffeeScript.compile(code, {sourceMap: false, fileName: fileOptions.output, bare: fileOptions.bare});
+      compileResult = CoffeeScript.compile(code, compileOpts);
     } catch (err) {
       // Handle compilation errors
       if (!err.location) throw err;
