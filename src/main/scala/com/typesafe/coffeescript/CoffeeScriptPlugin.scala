@@ -33,7 +33,8 @@ object CoffeeScriptPlugin extends Plugin {
     val sourceFilter = SettingKey[FileFilter](cs("filter"), "A filter matching CoffeeScript and literate CoffeeScript sources.")
     val outputDirectory = SettingKey[File](cs("output-directory"), "The output directory for compiled JavaScript files and source maps.")
     val literateFilter = SettingKey[NameFilter](cs("literate-filter"), "A filter to identify literate CoffeeScript files.")
-    val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function")
+    val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function.")
+    val sourceMaps = SettingKey[Boolean](cs("source-maps"), "Generate source map files.")
     val compileArgs = TaskKey[Seq[CompileArgs]](cs("compile-args"), "CompileArgs instructions for the CoffeeScript compiler.")
   }
 
@@ -56,18 +57,20 @@ object CoffeeScriptPlugin extends Plugin {
       val exclude = (excludeFilter in CoffeeScriptKeys.compile).value
       (dirs ** (include -- exclude)).get
     },
+    CoffeeScriptKeys.sourceMaps := true,
     CoffeeScriptKeys.bare := false,
     CoffeeScriptKeys.literateFilter := GlobFilter("*.litcoffee"),
     CoffeeScriptKeys.compileArgs := {
-      // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
       val literateFilter = CoffeeScriptKeys.literateFilter.value
+      val sourceMaps = CoffeeScriptKeys.sourceMaps.value
+
+      // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
       val inputSources = (sources in CoffeeScriptKeys.compile).value.get
       val inputDirectories = (sourceDirectories in CoffeeScriptKeys.compile).value.get
       val outputDirectory = CoffeeScriptKeys.outputDirectory.value
       for {
         (inFile, outFile) <- inputSources x rebase(inputDirectories, outputDirectory)
       } yield {
-        //println(inFile, outFile)
         val parent = outFile.getParent
         val name = outFile.getName
         val baseName = {
@@ -77,6 +80,7 @@ object CoffeeScriptPlugin extends Plugin {
         CompileArgs(
           input = inFile,
           output = new File(parent, baseName + ".js"),
+          sourceMap = Some(new File(parent, baseName + ".map")),
           bare = CoffeeScriptKeys.bare.value,
           literate = literateFilter.accept(name)
         )

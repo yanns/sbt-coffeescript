@@ -27,6 +27,7 @@ object CoffeeScriptEngine {
   final case class CompileArgs(
     input: File,
     output: File,
+    sourceMap: Option[File],
     bare: Boolean,
     literate: Boolean
   )
@@ -80,6 +81,7 @@ object CoffeeScriptEngine {
     val arg = JsObject(
       "input" -> JsString(opts.input.getPath),
       "output" -> JsString(opts.output.getPath),
+      "sourceMap" -> opts.sourceMap.fold[JsValue](JsNull)((f: File) => JsString(f.getPath)),
       "bare" -> JsBoolean(opts.bare),
       "literate" -> JsBoolean(opts.literate)
     ).compactPrint
@@ -122,6 +124,7 @@ object CoffeeScriptEngine {
       val result = compileFile(CompileArgs(
         input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
         output = new File("/p/play/js/sbt-coffeescript/target/test.js"),
+        sourceMap = None,
         bare = false,
         literate = false
       ))

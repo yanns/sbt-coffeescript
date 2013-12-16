@@ -44,7 +44,7 @@ function compileFile(fileOptions) {
 
   try {
     var compileOpts = {
-      sourceMap: false,
+      sourceMap: (fileOptions.sourceMap != null),
       fileName: fileOptions.output,
       bare: fileOptions.bare,
       literate: fileOptions.literate
@@ -64,9 +64,22 @@ function compileFile(fileOptions) {
         lineOffset: err.location.first_column
       };
     }
-    var jsOutput = (compileResult instanceof String) ? compileResult : compileResult.js;
+    var jsOutput;
+    var sourceMapOutput;
+    if (compileResult instanceof String) {
+      jsOutput = compileResult;
+      sourceMapOutput = null;
+    } else {
+      jsOutput = compileResult.js;
+      sourceMapOutput = compileResult.v3SourceMap;
+    }
+
     makeParentDirs(fileOptions.output);
-    fs.writeFileSync(fileOptions.output, compileResult);
+    fs.writeFileSync(fileOptions.output, jsOutput);
+    if (compileOpts.sourceMap) {
+      makeParentDirs(fileOptions.sourceMap);
+      fs.writeFileSync(fileOptions.sourceMap, sourceMapOutput);
+    }
     return {
       result: 'CompileSuccess'
     };
