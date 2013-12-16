@@ -137,7 +137,7 @@ object CoffeeScriptPlugin extends Plugin {
   private def cs(setting: String) = s"coffee-script-$setting"
 
   object CoffeeScriptKeys {
-    val compile = TaskKey[Unit](cs("compile"), "Compile CoffeeScript sources into JavaScript.")
+    val compile = TaskKey[Unit]("coffee-script", "Compile CoffeeScript sources into JavaScript.")
     val sourceFilter = SettingKey[FileFilter](cs("filter"), "A filter matching CoffeeScript sources.")
 
     // http://coffeescript.org/#usage
@@ -152,12 +152,12 @@ object CoffeeScriptPlugin extends Plugin {
   // FIXME: Load from disk
   private val singletonRawCache = new WorkCache[Compilation]()
 
-  private def scopedSettings(webConfig: Configuration, nonWebConfig: Configuration): Seq[Setting[_]] = Seq(
-    (CoffeeScriptKeys.compilations in webConfig) := {
+  def scopedSettings: Seq[Setting[_]] = Seq(
+    CoffeeScriptKeys.compilations := {
       // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
-      val sourceDir = (sourceDirectory in webConfig).value
-      val sources = (sourceDir ** (CoffeeScriptKeys.sourceFilter in webConfig).value).get
-      val outputDir = (resourceManaged in webConfig).value
+      val sourceDir = sourceDirectory.value
+      val sources = (sourceDir ** CoffeeScriptKeys.sourceFilter.value).get
+      val outputDir = resourceManaged.value
       sources x rebase(sourceDir, outputDir) map {
         case (inFile, outFile) =>
           //println(inFile, outFile)
@@ -174,12 +174,12 @@ object CoffeeScriptPlugin extends Plugin {
           )
       }
     },
-    (CoffeeScriptKeys.compile in webConfig) := {
+    CoffeeScriptKeys.compile := {
 
       val flatWorkCache = {
         val rawCache = singletonRawCache
         val workDef = new FlatWorkDef[Compilation] {
-          private val requestedWork = (CoffeeScriptKeys.compilations in webConfig).value.to[Vector]
+          private val requestedWork = CoffeeScriptKeys.compilations.value.to[Vector]
           def allPossibleWork = requestedWork
           def fileDepsForWork(c: Compilation): Set[File] = {
             requestedWork.find(_ == c).map((c: Compilation) => Set(c.input, c.output)).get
@@ -236,15 +236,22 @@ object CoffeeScriptPlugin extends Plugin {
         }
       }
     },
-    copyResources in webConfig <<= (copyResources in webConfig).dependsOn(CoffeeScriptKeys.compile in webConfig),
-    // TODO: Add dependency through an intermediate task in sbt-web?
-    compile in nonWebConfig <<= (compile in nonWebConfig).dependsOn(CoffeeScriptKeys.compile in webConfig)
-
+    compile := {
+      val compileAnalysis = compile.value
+      val unused = CoffeeScriptKeys.compile.value
+      compileAnalysis
+    }
   )
 
   def coffeeScriptSettings: Seq[Setting[_]] = Seq(
+    // TODO: Put in sbt-web
+    compile in WebKeys.Assets := inc.Analysis.Empty,
+    compile in WebKeys.TestAssets := inc.Analysis.Empty,
+    compile in Compile := (compile in Compile).value ++ (compile in WebKeys.Assets).value,
+    compile in Test := (compile in Test).value ++ (compile in WebKeys.TestAssets).value,
+    //
     CoffeeScriptKeys.sourceFilter := GlobFilter("*.coffee") | GlobFilter("*.litcoffee"),
     CoffeeScriptKeys.bare := false
-  ) ++ scopedSettings(WebKeys.Assets, Compile) ++ scopedSettings(WebKeys.TestAssets, Test)
+  ) ++ Project.inConfig(WebKeys.Assets)(scopedSettings) ++ Project.inConfig(WebKeys.TestAssets)(scopedSettings)
 
 }
