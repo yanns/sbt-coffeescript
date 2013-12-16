@@ -81,7 +81,7 @@ object CoffeeScriptEngine {
       "input" -> JsString(opts.input.getPath),
       "output" -> JsString(opts.output.getPath),
       "bare" -> JsBoolean(opts.bare),
-      "literate" -> JsBoolean(opts.bare)
+      "literate" -> JsBoolean(opts.literate)
     ).compactPrint
 
     def decodeJsonResult(result: JsObject): CompileResult = {

@@ -30,16 +30,11 @@ object CoffeeScriptPlugin extends Plugin {
 
   object CoffeeScriptKeys {
     val compile = TaskKey[Unit]("coffee-script", "Compile CoffeeScript sources into JavaScript.")
-    val sourceFilter = SettingKey[FileFilter](cs("filter"), "A filter matching CoffeeScript sources.")
-    val outputDirectory = SettingKey[File](cs("output-directory"), "The directory to output compiled JavaScript files.")
-
-    // http://coffeescript.org/#usage
-    val compilations = TaskKey[Seq[CompileArgs]](cs("compilations"), "CompileArgs instructions for the CoffeeScript compiler.")
-    //val join = SettingKey[File](cs("join"), "If specified, joins.")
-    //val map = SettingKey[Boolean](cs("map"), "Generate source maps")
+    val sourceFilter = SettingKey[FileFilter](cs("filter"), "A filter matching CoffeeScript and literate CoffeeScript sources.")
+    val outputDirectory = SettingKey[File](cs("output-directory"), "The output directory for compiled JavaScript files and source maps.")
+    val literateFilter = SettingKey[NameFilter](cs("literate-filter"), "A filter to identify literate CoffeeScript files.")
     val bare = SettingKey[Boolean](cs("bare"), "Compiles JavaScript that isn't wrapped in a function")
-    //val literate = SettingKey[Boolean](cs("literate"), "If true, force the code to be parsed as Literate CoffeeScript. Not needed if files have a .litcoffee extension.")
-    //val tokens = 
+    val compileArgs = TaskKey[Seq[CompileArgs]](cs("compile-args"), "CompileArgs instructions for the CoffeeScript compiler.")
   }
 
   // FIXME: Load from disk
@@ -52,7 +47,6 @@ object CoffeeScriptPlugin extends Plugin {
    * settings for non-web CoffeeScript compilation.
    */
   def scopedSettings: Seq[Setting[_]] = Seq(
-    CoffeeScriptKeys.bare := false,
     includeFilter in CoffeeScriptKeys.compile := GlobFilter("*.coffee") | GlobFilter("*.litcoffee"),
     excludeFilter in CoffeeScriptKeys.compile := NothingFilter,
     sourceDirectories in CoffeeScriptKeys.compile := sourceDirectories.value,
@@ -62,8 +56,11 @@ object CoffeeScriptPlugin extends Plugin {
       val exclude = (excludeFilter in CoffeeScriptKeys.compile).value
       (dirs ** (include -- exclude)).get
     },
-    CoffeeScriptKeys.compilations := {
+    CoffeeScriptKeys.bare := false,
+    CoffeeScriptKeys.literateFilter := GlobFilter("*.litcoffee"),
+    CoffeeScriptKeys.compileArgs := {
       // http://www.scala-sbt.org/release/docs/Detailed-Topics/Mapping-Files.html
+      val literateFilter = CoffeeScriptKeys.literateFilter.value
       val inputSources = (sources in CoffeeScriptKeys.compile).value.get
       val inputDirectories = (sourceDirectories in CoffeeScriptKeys.compile).value.get
       val outputDirectory = CoffeeScriptKeys.outputDirectory.value
@@ -73,17 +70,15 @@ object CoffeeScriptPlugin extends Plugin {
         //println(inFile, outFile)
         val parent = outFile.getParent
         val name = outFile.getName
-        val dotIndex = name.lastIndexOf('.')
-        val (baseName, extension) = if (dotIndex == -1) {
-          (name, "")
-        } else {
-          (name.substring(0, dotIndex), name.substring(dotIndex + 1))
+        val baseName = {
+          val dotIndex = name.lastIndexOf('.')
+          if (dotIndex == -1) name else name.substring(0, dotIndex)
         }
         CompileArgs(
           input = inFile,
           output = new File(parent, baseName + ".js"),
           bare = CoffeeScriptKeys.bare.value,
-          literate = extension == "litcoffee"
+          literate = literateFilter.accept(name)
         )
       }
     },
@@ -92,7 +87,7 @@ object CoffeeScriptPlugin extends Plugin {
       val flatWorkCache = {
         val rawCache = singletonRawCache
         val workDef = new FlatWorkDef[CompileArgs] {
-          private val requestedWork = CoffeeScriptKeys.compilations.value.to[Vector]
+          private val requestedWork = CoffeeScriptKeys.compileArgs.value.to[Vector]
           def allPossibleWork = requestedWork
           def fileDepsForWork(c: CompileArgs): Set[File] = {
             requestedWork.find(_ == c).map((c: CompileArgs) => Set(c.input, c.output)).get
@@ -101,8 +96,8 @@ object CoffeeScriptPlugin extends Plugin {
         new FlatWorkCache(rawCache, workDef)
       }
 
-      val compilationsToDo = flatWorkCache.workToDo
-      val sourceCount = compilationsToDo.length
+      val compileArgsToDo = flatWorkCache.workToDo
+      val sourceCount = compileArgsToDo.length
       if (sourceCount > 0) {
 
         val log = streams.value.log
@@ -116,7 +111,7 @@ object CoffeeScriptPlugin extends Plugin {
         implicit val jseSystem = JsEnginePlugin.jseSystem
         implicit val jseTimeout = JsEnginePlugin.jseTimeout
 
-        for (compilation <- compilationsToDo) {
+        for (compilation <- compileArgsToDo) {
 
           compileFile(compilation) match {
             case CompileSuccess =>
