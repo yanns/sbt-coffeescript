@@ -22,14 +22,29 @@ import scala.util.{ Failure, Success, Try }
 import spray.json._
 import xsbti.{ Maybe, Position, Severity }
 
+final case class CoffeeScriptEngineException(message: String) extends Exception(message)
+
 object CoffeeScriptEngine {
 
   final case class CompileArgs(
-    input: File,
-    output: File,
-    sourceMap: Option[File],
+    coffeeScriptInputFile: File,
+    javaScriptOutputFile: File,
+    sourceMapOpts: Option[SourceMapOptions],
     bare: Boolean,
     literate: Boolean
+  )
+
+  /**
+   * @param sourceMapOutputFile The file to write the source map to.
+   * @param sourceMapRef A reference to .
+   * @param javaScriptURL The URL of the source CoffeeScript files when served; can be absolute or relative to the map file.
+   */
+  final case class SourceMapOptions(
+    sourceMapOutputFile: File,
+    sourceMapRef: String,
+    javaScriptFileName: String,
+    coffeeScriptRootRef: String,
+    coffeeScriptPathRefs: List[String]
   )
 
   sealed trait CompileResult
@@ -42,12 +57,51 @@ object CoffeeScriptEngine {
     lineOffset: Int
   ) extends CompileResult
 
-  // TODO: Share a single Engine instance between compilations
-  def compileFile(opts: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): CompileResult = {
-    Await.result(compileFileFuture(opts), timeout.duration)
+  object JsonConversion {
+    def toJson(args: CompileArgs): JsObject = {
+      import args._
+      JsObject(
+        "coffeeScriptInputFile" -> JsString(coffeeScriptInputFile.getPath),
+        "javaScriptOutputFile" -> JsString(javaScriptOutputFile.getPath),
+        "sourceMapOpts" -> sourceMapOpts.fold[JsValue](JsNull)(toJson(_: SourceMapOptions)),
+        "bare" -> JsBoolean(bare),
+        "literate" -> JsBoolean(literate)
+      )
+    }
+    def toJson(opts: SourceMapOptions): JsObject = {
+      import opts._
+      JsObject(
+        "sourceMapOutputFile" -> JsString(sourceMapOutputFile.getPath),
+        "sourceMapRef" -> JsString(sourceMapRef),
+        "javaScriptFileName" -> JsString(javaScriptFileName),
+        "coffeeScriptRootRef" -> JsString(coffeeScriptRootRef),
+        "coffeeScriptPathRefs" -> JsArray(coffeeScriptPathRefs.map(JsString.apply))
+      )
+    }
+    def fromJson(json: JsObject): CompileResult = {
+      json.fields("result").asInstanceOf[JsString].value match {
+        case "CompileSuccess" =>
+          CompileSuccess
+        case "CodeError" =>
+          val message = json.fields("message").asInstanceOf[JsString].value
+          val lineCode = json.fields("lineContent").asInstanceOf[JsString].value
+          val lineNumber = json.fields("lineNumber").asInstanceOf[JsNumber].value.intValue
+          val lineOffset = json.fields("lineOffset").asInstanceOf[JsNumber].value.intValue
+          CodeError(message, lineCode, lineNumber, lineOffset)
+        case "GenericError" =>
+          GenericError(json.fields("message").asInstanceOf[JsString].value)
+        case _ =>
+          throw CoffeeScriptEngineException(s"Unknown JSON result running CoffeeScript driver: $json")
+      }
+    }
   }
 
-  def compileFileFuture(opts: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
+  // TODO: Share a single Engine instance between compilations
+  def compileFile(compileArgs: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): CompileResult = {
+    Await.result(compileFileFuture(compileArgs), timeout.duration)
+  }
+
+  def compileFileFuture(compileArgs: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
     val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
 
     def generateDriverFile(): File = {
@@ -78,63 +132,40 @@ object CoffeeScriptEngine {
 
     import DefaultJsonProtocol._
 
-    val arg = JsObject(
-      "input" -> JsString(opts.input.getPath),
-      "output" -> JsString(opts.output.getPath),
-      "sourceMap" -> opts.sourceMap.fold[JsValue](JsNull)((f: File) => JsString(f.getPath)),
-      "bare" -> JsBoolean(opts.bare),
-      "literate" -> JsBoolean(opts.literate)
-    ).compactPrint
-
-    def decodeJsonResult(result: JsObject): CompileResult = {
-      result.fields("result").asInstanceOf[JsString].value match {
-        case "CompileSuccess" =>
-          CompileSuccess
-        case "CodeError" =>
-          val message = result.fields("message").asInstanceOf[JsString].value
-          val lineCode = result.fields("lineContent").asInstanceOf[JsString].value
-          val lineNumber = result.fields("lineNumber").asInstanceOf[JsNumber].value.intValue
-          val lineOffset = result.fields("lineOffset").asInstanceOf[JsNumber].value.intValue
-          CodeError(message, lineCode, lineNumber, lineOffset)
-        case "GenericError" =>
-          GenericError(result.fields("message").asInstanceOf[JsString].value)
-        case _ =>
-          throw new RuntimeException(s"Unknown JSON result running CoffeeScript driver: $result") // FIXME: Better Exception type
-      }
-    }
-
+    val arg = JsonConversion.toJson(compileArgs).compactPrint
     import actorRefFactory.dispatcher
+
     (engine ? Engine.ExecuteJs(f, immutable.Seq(arg))).mapTo[JsExecutionResult].map {
-      case JsExecutionResult(0, stdoutBytes, _) =>
+      case JsExecutionResult(0, stdoutBytes, stderrBytes) if stderrBytes.length == 0 =>
         val jsonResult = (new String(stdoutBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]
-        decodeJsonResult(jsonResult)
+        JsonConversion.fromJson(jsonResult)
       case result =>
         val exitValue = result.exitValue
         val stdout = new String(result.output.toArray, "utf-8")
         val stderr = new String(result.error.toArray, "utf-8")
-        throw new RuntimeException(s"Unexpected result running CoffeeScript driver: exit value: $exitValue, stdout: $stdout, stderr: $stderr")
+        throw CoffeeScriptEngineException(s"Unexpected result running CoffeeScript driver: exit value: $exitValue, stdout: $stdout, stderr: $stderr")
     }
 
   }
 
-  def main(args: Array[String]) {
-    implicit val system = ActorSystem("jse-system")
-    implicit val timeout = Timeout(5.seconds)
-    try {
-      val result = compileFile(CompileArgs(
-        input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
-        output = new File("/p/play/js/sbt-coffeescript/target/test.js"),
-        sourceMap = None,
-        bare = false,
-        literate = false
-      ))
-      println(result)
-    } finally {
-      println("Running shutdown")
-      system.shutdown()
-      println("Waiting for termination")
-      system.awaitTermination()
-      println("Terminated")
-    }
-  }
+  // def main(args: Array[String]) {
+  //   implicit val system = ActorSystem("jse-system")
+  //   implicit val timeout = Timeout(5.seconds)
+  //   try {
+  //     val result = compileFile(CompileArgs(
+  //       input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
+  //       output = new File("/p/play/js/sbt-coffeescript/target/test.js"),
+  //       sourceMap = None,
+  //       bare = false,
+  //       literate = false
+  //     ))
+  //     println(result)
+  //   } finally {
+  //     println("Running shutdown")
+  //     system.shutdown()
+  //     println("Waiting for termination")
+  //     system.awaitTermination()
+  //     println("Terminated")
+  //   }
+  // }
 }

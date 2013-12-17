@@ -24,32 +24,44 @@ path = require('path');
 // - passing those arguments to the `compileFile` function
 // - JSON encoding the function's return value and writing it to stdout.
 
+function trace(output) {
+  //console.log(output);
+  //process.stderr.write(output);
+}
+
+//trace(process.argv[2]);
 var opts = JSON.parse(process.argv[2]);
 var result = compileFile(opts);
 process.stdout.write(JSON.stringify(result));
 
+
+// Make the any parent directories needed for the given path
+function makeParentDirs(childPath) {
+  var parentPath = path.dirname(childPath);
+  if (fs.existsSync(parentPath)) return;
+  fs.mkdirSync(parentPath);
+  makeParentDirs(parentPath);
+}
 
 // Compile a single file.
 // Returns an object indicating success of failure.
 // The result object uses primitive JS types only, so that it can be JSON encoded.
 function compileFile(fileOptions) {
 
-  // Make the any parent directories needed for the given path
-  function makeParentDirs(childPath) {
-    var parentPath = path.dirname(childPath);
-    if (fs.existsSync(parentPath)) return;
-    fs.mkdirSync(parentPath);
-    makeParentDirs(parentPath);
-  }
-
   try {
     var compileOpts = {
-      sourceMap: (fileOptions.sourceMap != null),
-      fileName: fileOptions.output,
       bare: fileOptions.bare,
       literate: fileOptions.literate
     };
-    var code = fs.readFileSync(fileOptions.input).toString();
+    var generateSourceMap = fileOptions.sourceMapOpts != null;
+    if (generateSourceMap) {
+      compileOpts.sourceMap = true;
+      compileOpts.generatedFile = fileOptions.sourceMapOpts.javaScriptFileName;
+      compileOpts.sourceRoot = fileOptions.sourceMapOpts.coffeeScriptRootRef;
+      compileOpts.sourceFiles = fileOptions.sourceMapOpts.coffeeScriptPathRefs;
+    }
+
+    var code = fs.readFileSync(fileOptions.coffeeScriptInputFile).toString();
     var compileResult;
     try {
       compileResult = CoffeeScript.compile(code, compileOpts);
@@ -64,22 +76,27 @@ function compileFile(fileOptions) {
         lineOffset: err.location.first_column
       };
     }
+
     var jsOutput;
     var sourceMapOutput;
-    if (compileResult instanceof String) {
+    if (generateSourceMap) {
+      jsOutput = compileResult.js + "\n/*\n//@ sourceMappingURL=\"" + fileOptions.sourceMapOpts.sourceMapRef + "\"\n*/\n";
+      sourceMapOutput = compileResult.v3SourceMap;
+    } else {
+      if (!(compileResult instanceof String)) throw Error("Unexpected compile result type, expected String: " + compileResult);
       jsOutput = compileResult;
       sourceMapOutput = null;
-    } else {
-      jsOutput = compileResult.js;
-      sourceMapOutput = compileResult.v3SourceMap;
     }
 
-    makeParentDirs(fileOptions.output);
-    fs.writeFileSync(fileOptions.output, jsOutput);
-    if (compileOpts.sourceMap) {
-      makeParentDirs(fileOptions.sourceMap);
-      fs.writeFileSync(fileOptions.sourceMap, sourceMapOutput);
+    //trace(jsOutput);
+
+    makeParentDirs(fileOptions.javaScriptOutputFile);
+    fs.writeFileSync(fileOptions.javaScriptOutputFile, jsOutput);
+    if (generateSourceMap) {
+      makeParentDirs(fileOptions.sourceMapOpts.sourceMapOutputFile);
+      fs.writeFileSync(fileOptions.sourceMapOpts.sourceMapOutputFile, sourceMapOutput);
     }
+
     return {
       result: 'CompileSuccess'
     };

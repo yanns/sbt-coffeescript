@@ -20,7 +20,15 @@ import scala.concurrent.{ Await, Future }
 import scala.concurrent.duration._
 import scala.util.{ Failure, Success, Try }
 import spray.json._
-import xsbti.{ Maybe, Position, Severity }
+import xsbti.{ CompileFailed, Maybe, Position, Problem, Severity }
+
+final case class CoffeeScriptPluginException(message: String) extends Exception(message)
+class CoffeeScriptCompileFailed(override val problems: Array[Problem])
+  extends CompileFailed
+  with FeedbackProvidedException {
+  override val arguments: Array[String] = Array.empty
+}
+
 
 object CoffeeScriptPlugin extends Plugin {
 
@@ -69,18 +77,32 @@ object CoffeeScriptPlugin extends Plugin {
       val inputDirectories = (sourceDirectories in CoffeeScriptKeys.compile).value.get
       val outputDirectory = CoffeeScriptKeys.outputDirectory.value
       for {
-        (inFile, outFile) <- inputSources x rebase(inputDirectories, outputDirectory)
+        (csFile, rebasedFile) <- inputSources x rebase(inputDirectories, outputDirectory)
       } yield {
-        val parent = outFile.getParent
-        val name = outFile.getName
+        val parent = rebasedFile.getParent
+        val name = rebasedFile.getName
         val baseName = {
           val dotIndex = name.lastIndexOf('.')
           if (dotIndex == -1) name else name.substring(0, dotIndex)
         }
+        val jsFileName = baseName + ".js"
+        val jsFile = new File(parent, jsFileName)
+        val mapFileName = jsFileName + ".map"
+        val mapFile = new File(parent, mapFileName)
+
+        val sourceMapOpts = if (sourceMaps) {
+          Some(SourceMapOptions(
+            sourceMapOutputFile = mapFile,
+            sourceMapRef = mapFileName,
+            javaScriptFileName = jsFileName,
+            coffeeScriptRootRef = "",
+            coffeeScriptPathRefs = List(name)
+          ))
+        } else None
         CompileArgs(
-          input = inFile,
-          output = new File(parent, baseName + ".js"),
-          sourceMap = Some(new File(parent, baseName + ".map")),
+          coffeeScriptInputFile = csFile,
+          javaScriptOutputFile = jsFile,
+          sourceMapOpts = sourceMapOpts,
           bare = CoffeeScriptKeys.bare.value,
           literate = literateFilter.accept(name)
         )
@@ -94,7 +116,9 @@ object CoffeeScriptPlugin extends Plugin {
           private val requestedWork = CoffeeScriptKeys.compileArgs.value.to[Vector]
           def allPossibleWork = requestedWork
           def fileDepsForWork(c: CompileArgs): Set[File] = {
-            requestedWork.find(_ == c).map((c: CompileArgs) => Set(c.input, c.output)).get
+            val inOutSet = Set(c.coffeeScriptInputFile, c.javaScriptOutputFile)
+            val sourceMapSet = c.sourceMapOpts.map(_.sourceMapOutputFile).to[Set]
+            inOutSet ++ sourceMapSet
           }
         }
         new FlatWorkCache(rawCache, workDef)
@@ -116,7 +140,6 @@ object CoffeeScriptPlugin extends Plugin {
         implicit val jseTimeout = JsEnginePlugin.jseTimeout
 
         for (compilation <- compileArgsToDo) {
-
           compileFile(compilation) match {
             case CompileSuccess =>
               flatWorkCache.recordWorkDone(compilation)
@@ -131,18 +154,18 @@ object CoffeeScriptPlugin extends Plugin {
                     case '\t' => '\t'
                     case x => ' '
                   })
-                def sourceFile: Maybe[File] = Maybe.just(compilation.input)
-                def sourcePath: Maybe[String] = Maybe.just(compilation.input.getPath)
+                def sourceFile: Maybe[File] = Maybe.just(compilation.coffeeScriptInputFile)
+                def sourcePath: Maybe[String] = Maybe.just(compilation.coffeeScriptInputFile.getPath)
               }
               webReporter.log(pos, err.message, Severity.Error)
             case err: GenericError =>
-              throw new RuntimeException(err.message) // FIXME: Better exception type
+              throw CoffeeScriptPluginException(err.message)
           }
         }
 
         webReporter.printSummary()
         if (webReporter.hasErrors) {
-          throw new RuntimeException("CoffeeScript failure") // TODO: Proper exception
+          throw new CoffeeScriptCompileFailed(Array(/* FIXME: Add problems */))
         }
       }
     },
