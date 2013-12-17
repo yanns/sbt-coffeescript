@@ -47,7 +47,7 @@ object CoffeeScriptPlugin extends Plugin {
   }
 
   // FIXME: Load from disk
-  private val singletonRawCache = new WorkCache[CompileArgs]()
+  private val singletonWorkCache = new WorkCache[CompileArgs]()
 
   /**
    * Use this to import CoffeeScript settings into a specific scope,
@@ -110,24 +110,10 @@ object CoffeeScriptPlugin extends Plugin {
     },
     CoffeeScriptKeys.compile := {
 
-      val flatWorkCache = {
-        val rawCache = singletonRawCache
-        val workDef = new FlatWorkDef[CompileArgs] {
-          private val requestedWork = CoffeeScriptKeys.compileArgs.value.to[Vector]
-          def allPossibleWork = requestedWork
-          def fileDepsForWork(c: CompileArgs): Set[File] = {
-            val inOutSet = Set(c.coffeeScriptInputFile, c.javaScriptOutputFile)
-            val sourceMapSet = c.sourceMapOpts.map(_.sourceMapOutputFile).to[Set]
-            inOutSet ++ sourceMapSet
-          }
-        }
-        new FlatWorkCache(rawCache, workDef)
-      }
+      val neededCompiles = WorkRunner.neededWork(singletonWorkCache, CoffeeScriptKeys.compileArgs.value.to[Vector])
+      val sourceCount = neededCompiles.length
 
-      val compileArgsToDo = flatWorkCache.workToDo
-      val sourceCount = compileArgsToDo.length
       if (sourceCount > 0) {
-
         val log = streams.value.log
         val sourceString = if (sourceCount == 1) "source" else "sources"
         log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
@@ -135,14 +121,17 @@ object CoffeeScriptPlugin extends Plugin {
         val webReporter = WebKeys.reporter.value
         webReporter.reset()
 
-        // TODO: Think about lifecycle (start/stop) of ActorSystem
-        implicit val jseSystem = JsEnginePlugin.jseSystem
-        implicit val jseTimeout = JsEnginePlugin.jseTimeout
+        WorkRunner.runAndCache(singletonWorkCache, neededCompiles) { compilation =>
 
-        for (compilation <- compileArgsToDo) {
+          // TODO: Think about lifecycle (start/stop) of ActorSystem
+          implicit val jseSystem = JsEnginePlugin.jseSystem
+          implicit val jseTimeout = JsEnginePlugin.jseTimeout
+
           compileFile(compilation) match {
             case CompileSuccess =>
-              flatWorkCache.recordWorkDone(compilation)
+              val inOutSet = Set(compilation.coffeeScriptInputFile, compilation.javaScriptOutputFile)
+              val sourceMapSet = compilation.sourceMapOpts.map(_.sourceMapOutputFile).to[Set]
+              Some(inOutSet ++ sourceMapSet)
             case err: CodeError =>
               val pos = new Position {
                 def line: Maybe[Integer] = Maybe.just(err.lineNumber)
@@ -158,6 +147,7 @@ object CoffeeScriptPlugin extends Plugin {
                 def sourcePath: Maybe[String] = Maybe.just(compilation.coffeeScriptInputFile.getPath)
               }
               webReporter.log(pos, err.message, Severity.Error)
+              None
             case err: GenericError =>
               throw CoffeeScriptPluginException(err.message)
           }
