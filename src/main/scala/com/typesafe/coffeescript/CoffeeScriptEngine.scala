@@ -8,9 +8,6 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
 import com.typesafe.jse.Engine.JsExecutionResult
-import com.typesafe.js.sbt.WebPlugin.WebKeys
-import com.typesafe.jse.sbt.JsEnginePlugin.JsEngineKeys
-import com.typesafe.jse.sbt.JsEnginePlugin
 import java.io.File
 import org.apache.commons.io.{ FileUtils, IOUtils }
 import sbt._
@@ -135,6 +132,7 @@ object CoffeeScriptEngine {
     val arg = JsonConversion.toJson(compileArgs).compactPrint
     import actorRefFactory.dispatcher
 
+    // FIXME: Pass over stdin, command line argument length is limited
     (engine ? Engine.ExecuteJs(f, immutable.Seq(arg))).mapTo[JsExecutionResult].map {
       case JsExecutionResult(0, stdoutBytes, stderrBytes) if stderrBytes.length == 0 =>
         val jsonResult = (new String(stdoutBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]

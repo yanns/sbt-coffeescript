@@ -8,6 +8,8 @@ version := "0.1-SNAPSHOT"
 
 scalaVersion := "2.10.3"
 
+scalacOptions += "-feature"
+
 libraryDependencies ++= Seq(
   "org.webjars" % "coffee-script" % "1.6.3",
   "commons-io" % "commons-io" % "2.4"

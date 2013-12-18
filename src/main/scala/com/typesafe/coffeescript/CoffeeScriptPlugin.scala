@@ -8,27 +8,23 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
 import com.typesafe.jse.Engine.JsExecutionResult
-import com.typesafe.js.sbt.WebPlugin.WebKeys
 import com.typesafe.jse.sbt.JsEnginePlugin.JsEngineKeys
 import com.typesafe.jse.sbt.JsEnginePlugin
 import java.io.File
 import org.apache.commons.io.{ FileUtils, IOUtils }
 import sbt._
 import sbt.Keys._
-import scala.collection.immutable
+import com.typesafe.web.sbt.{ LineBasedProblem, WebPlugin }
+import com.typesafe.web.sbt.WebPlugin.WebKeys
+import com.typesafe.web.sbt.incremental._
 import scala.concurrent.{ Await, Future }
 import scala.concurrent.duration._
 import scala.util.{ Failure, Success, Try }
 import spray.json._
 import xsbti.{ CompileFailed, Maybe, Position, Problem, Severity }
+import com.typesafe.web.sbt.CompileProblems
 
 final case class CoffeeScriptPluginException(message: String) extends Exception(message)
-class CoffeeScriptCompileFailed(override val problems: Array[Problem])
-  extends CompileFailed
-  with FeedbackProvidedException {
-  override val arguments: Array[String] = Array.empty
-}
-
 
 object CoffeeScriptPlugin extends Plugin {
 
@@ -45,9 +41,6 @@ object CoffeeScriptPlugin extends Plugin {
     val sourceMaps = SettingKey[Boolean](cs("source-maps"), "Generate source map files.")
     val compileArgs = TaskKey[Seq[CompileArgs]](cs("compile-args"), "CompileArgs instructions for the CoffeeScript compiler.")
   }
-
-  // FIXME: Load from disk
-  private val singletonWorkCache = new WorkCache[CompileArgs]()
 
   /**
    * Use this to import CoffeeScript settings into a specific scope,
@@ -109,55 +102,49 @@ object CoffeeScriptPlugin extends Plugin {
       }
     },
     CoffeeScriptKeys.compile := {
+      val log = streams.value.log
+      val compiles = CoffeeScriptKeys.compileArgs.value.to[Vector]
+      val sbtState = state.value
 
-      val neededCompiles = WorkRunner.neededWork(singletonWorkCache, CoffeeScriptKeys.compileArgs.value.to[Vector])
-      val sourceCount = neededCompiles.length
+      val problems = runIncremental[CompileArgs, Seq[Problem]](streams.value, compiles) { neededCompiles: Seq[CompileArgs] =>
+        val sourceCount = neededCompiles.length
 
-      if (sourceCount > 0) {
-        val log = streams.value.log
-        val sourceString = if (sourceCount == 1) "source" else "sources"
-        log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
+        if (sourceCount == 0) (Map.empty, Seq.empty) else {
+          val sourceString = if (sourceCount == 1) "source" else "sources"
+          log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
 
-        val webReporter = WebKeys.reporter.value
-        webReporter.reset()
+          WebPlugin.withActorRefFactory(sbtState, "coffeeScriptCompile") { implicit actorRefFactory =>
+            import WebPlugin.webActorTimeout
 
-        WorkRunner.runAndCache(singletonWorkCache, neededCompiles) { compilation =>
-
-          // TODO: Think about lifecycle (start/stop) of ActorSystem
-          implicit val jseSystem = JsEnginePlugin.jseSystem
-          implicit val jseTimeout = JsEnginePlugin.jseTimeout
-
-          compileFile(compilation) match {
-            case CompileSuccess =>
-              val inOutSet = Set(compilation.coffeeScriptInputFile, compilation.javaScriptOutputFile)
-              val sourceMapSet = compilation.sourceMapOpts.map(_.sourceMapOutputFile).to[Set]
-              Some(inOutSet ++ sourceMapSet)
-            case err: CodeError =>
-              val pos = new Position {
-                def line: Maybe[Integer] = Maybe.just(err.lineNumber)
-                def offset: Maybe[Integer] = Maybe.just(err.lineOffset)
-                def lineContent: String = err.lineContent
-                def pointer: Maybe[Integer] = offset
-                def pointerSpace: Maybe[String] = Maybe.just(
-                  lineContent.take(pointer.get).map {
-                    case '\t' => '\t'
-                    case x => ' '
-                  })
-                def sourceFile: Maybe[File] = Maybe.just(compilation.coffeeScriptInputFile)
-                def sourcePath: Maybe[String] = Maybe.just(compilation.coffeeScriptInputFile.getPath)
-              }
-              webReporter.log(pos, err.message, Severity.Error)
-              None
-            case err: GenericError =>
-              throw CoffeeScriptPluginException(err.message)
+            neededCompiles.foldLeft[(Map[CompileArgs,OpResult], Seq[Problem])]((Map.empty, Seq.empty)) {
+              case ((resultMap, problemSeq), compilation) =>
+                compileFile(compilation) match {
+                  case CompileSuccess =>
+                    val result = OpSuccess(
+                      filesRead = Set(compilation.coffeeScriptInputFile),
+                      filesWritten = Set(compilation.javaScriptOutputFile) ++ compilation.sourceMapOpts.map(_.sourceMapOutputFile).to[Set]
+                    )
+                    (resultMap.updated(compilation, result), problemSeq)
+                  case err: CodeError =>
+                    val problem = new LineBasedProblem(
+                      message = err.message,
+                      severity = Severity.Error,
+                      lineNumber = err.lineNumber,
+                      characterOffset = err.lineOffset,
+                      lineContent = err.lineContent,
+                      source = compilation.coffeeScriptInputFile
+                    )
+                    val result = OpFailure
+                    (resultMap.updated(compilation, result), problemSeq :+ problem)
+                  case err: GenericError =>
+                    throw CoffeeScriptPluginException(err.message)
+                }
+            }
           }
         }
-
-        webReporter.printSummary()
-        if (webReporter.hasErrors) {
-          throw new CoffeeScriptCompileFailed(Array(/* FIXME: Add problems */))
-        }
       }
+
+      CompileProblems.report(WebKeys.reporter.value, problems)
     },
     compile := {
       val compileAnalysis = compile.value
