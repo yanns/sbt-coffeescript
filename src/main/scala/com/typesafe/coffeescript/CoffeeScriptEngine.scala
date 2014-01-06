@@ -18,6 +18,8 @@ import scala.concurrent.duration._
 import scala.util.{ Failure, Success, Try }
 import spray.json._
 import xsbti.{ Maybe, Position, Severity }
+import akka.actor.Props
+import java.util.concurrent.TimeUnit
 
 final case class CoffeeScriptEngineException(message: String) extends Exception(message)
 
@@ -94,12 +96,7 @@ object CoffeeScriptEngine {
   }
 
   // TODO: Share a single Engine instance between compilations
-  def compileFile(compileArgs: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): CompileResult = {
-    Await.result(compileFileFuture(compileArgs), timeout.duration)
-  }
-
-  def compileFileFuture(compileArgs: CompileArgs)(implicit actorRefFactory: ActorRefFactory, timeout: Timeout): Future[CompileResult] = {
-    val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
+  def compileFile(compileArgs: CompileArgs)(implicit actorRefFactory: ActorRefFactory): CompileResult = {
 
     def generateDriverFile(): File = {
       val file = File.createTempFile("sbt-coffeescript-driver", ".js") // TODO: Use SBT temp directory?
@@ -132,8 +129,9 @@ object CoffeeScriptEngine {
     val arg = JsonConversion.toJson(compileArgs).compactPrint
     import actorRefFactory.dispatcher
 
-    // FIXME: Pass over stdin, command line argument length is limited
-    (engine ? Engine.ExecuteJs(f, immutable.Seq(arg))).mapTo[JsExecutionResult].map {
+
+    val jsResult = Await.result(executeJs(Node.props(), Engine.ExecuteJs(f, immutable.Seq(arg))), reallyLongTime)
+    jsResult match {
       case JsExecutionResult(0, stdoutBytes, stderrBytes) if stderrBytes.length == 0 =>
         val jsonResult = (new String(stdoutBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]
         JsonConversion.fromJson(jsonResult)
@@ -143,7 +141,20 @@ object CoffeeScriptEngine {
         val stderr = new String(result.error.toArray, "utf-8")
         throw CoffeeScriptEngineException(s"Unexpected result running CoffeeScript driver: exit value: $exitValue, stdout: $stdout, stderr: $stderr")
     }
+  }
 
+  /**
+   * A timeout a long way in the future. We don't want to timeout since we can't
+   * really do anything sensible to recover. Instead the user or CI tool can cancel
+   * the build at a higher level if they think there's a problem.
+   */
+  private val reallyLongTime = FiniteDuration(100, TimeUnit.DAYS)
+
+  private def executeJs(engineProps: Props, msg: Engine.ExecuteJs)(implicit actorRefFactory: ActorRefFactory): Future[JsExecutionResult] = {
+    val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
+    // FIXME: Pass over stdin, command line argument length is limited?
+    implicit val msgTimeout = Timeout(reallyLongTime)
+    (engine ? msg).mapTo[JsExecutionResult]
   }
 
   // def main(args: Array[String]) {

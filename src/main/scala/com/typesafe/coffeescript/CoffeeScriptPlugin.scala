@@ -23,12 +23,13 @@ import scala.util.{ Failure, Success, Try }
 import spray.json._
 import xsbti.{ CompileFailed, Maybe, Position, Problem, Severity }
 import com.typesafe.web.sbt.CompileProblems
+import com.typesafe.web.sbt.WebPlugin
+
+import CoffeeScriptEngine.{ CodeError, CompileArgs, CompileSuccess, GenericError, SourceMapOptions }
 
 final case class CoffeeScriptPluginException(message: String) extends Exception(message)
 
 object CoffeeScriptPlugin extends Plugin {
-
-  import CoffeeScriptEngine._
 
   private def cs(setting: String) = s"coffee-script-$setting"
 
@@ -114,31 +115,10 @@ object CoffeeScriptPlugin extends Plugin {
           log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
 
           WebPlugin.withActorRefFactory(sbtState, "coffeeScriptCompile") { implicit actorRefFactory =>
-            import WebPlugin.webActorTimeout
-
             neededCompiles.foldLeft[(Map[CompileArgs,OpResult], Seq[Problem])]((Map.empty, Seq.empty)) {
-              case ((resultMap, problemSeq), compilation) =>
-                compileFile(compilation) match {
-                  case CompileSuccess =>
-                    val result = OpSuccess(
-                      filesRead = Set(compilation.coffeeScriptInputFile),
-                      filesWritten = Set(compilation.javaScriptOutputFile) ++ compilation.sourceMapOpts.map(_.sourceMapOutputFile).to[Set]
-                    )
-                    (resultMap.updated(compilation, result), problemSeq)
-                  case err: CodeError =>
-                    val problem = new LineBasedProblem(
-                      message = err.message,
-                      severity = Severity.Error,
-                      lineNumber = err.lineNumber,
-                      characterOffset = err.lineOffset,
-                      lineContent = err.lineContent,
-                      source = compilation.coffeeScriptInputFile
-                    )
-                    val result = OpFailure
-                    (resultMap.updated(compilation, result), problemSeq :+ problem)
-                  case err: GenericError =>
-                    throw CoffeeScriptPluginException(err.message)
-                }
+              case ((resultMap, problemSeq), compilation) => runSingleCompile(compilation) match {
+                case (newResult, newProblems) => (resultMap.updated(compilation, newResult), problemSeq ++ newProblems)
+              }
             }
           }
         }
@@ -152,6 +132,33 @@ object CoffeeScriptPlugin extends Plugin {
       compileAnalysis
     }
   )
+
+  def runSingleCompile(compilation: CompileArgs)(implicit actorRefFactory: ActorRefFactory): (OpResult, Seq[Problem]) = {
+    CoffeeScriptEngine.compileFile(compilation) match {
+      case CompileSuccess =>
+        (
+          OpSuccess(
+            filesRead = Set(compilation.coffeeScriptInputFile),
+            filesWritten = Set(compilation.javaScriptOutputFile) ++ compilation.sourceMapOpts.map(_.sourceMapOutputFile).to[Set]
+          ),
+          Seq.empty
+        )
+      case err: CodeError =>
+        (
+          OpFailure,
+          Seq(new LineBasedProblem(
+            message = err.message,
+            severity = Severity.Error,
+            lineNumber = err.lineNumber,
+            characterOffset = err.lineOffset,
+            lineContent = err.lineContent,
+            source = compilation.coffeeScriptInputFile
+          ))
+        )
+      case err: GenericError =>
+        throw CoffeeScriptPluginException(err.message)
+    }
+  }
 
     // TODO: Put in sbt-web
   object TodoWeb {
