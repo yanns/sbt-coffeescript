@@ -1,25 +1,20 @@
 /*
- * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ * Copyright (C) 2009-2014 Typesafe Inc. <http://www.typesafe.com>
  */
-package com.typesafe.sbt.coffeescript
+package com.typesafe.coffeescript
 
-import akka.actor.{ ActorRefFactory, ActorSystem }
+import akka.actor.{ ActorRefFactory, Props }
 import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
-import com.typesafe.jse.Engine.JsExecutionResult
+import com.typesafe.jse.Engine.{ ExecuteJs, JsExecutionResult }
 import java.io.File
+import java.util.concurrent.TimeUnit
 import org.apache.commons.io.{ FileUtils, IOUtils }
-import sbt._
-import sbt.Keys._
 import scala.collection.immutable
 import scala.concurrent.{ Await, Future }
 import scala.concurrent.duration._
-import scala.util.{ Failure, Success, Try }
 import spray.json._
-import xsbti.{ Maybe, Position, Severity }
-import akka.actor.Props
-import java.util.concurrent.TimeUnit
 
 final case class CoffeeScriptEngineException(message: String) extends Exception(message)
 

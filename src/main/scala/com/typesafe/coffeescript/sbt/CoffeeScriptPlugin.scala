@@ -1,31 +1,19 @@
 /*
- * Copyright (C) 2009-2013 Typesafe Inc. <http://www.typesafe.com>
+ * Copyright (C) 2009-2014 Typesafe Inc. <http://www.typesafe.com>
  */
-package com.typesafe.sbt.coffeescript
+package com.typesafe.coffeescript.sbt
 
-import akka.actor.{ ActorRefFactory, ActorSystem }
-import akka.pattern.ask
-import akka.util.Timeout
-import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
-import com.typesafe.jse.Engine.JsExecutionResult
-import com.typesafe.jse.sbt.JsEnginePlugin.JsEngineKeys
-import com.typesafe.jse.sbt.JsEnginePlugin
-import java.io.File
-import org.apache.commons.io.{ FileUtils, IOUtils }
+import akka.actor.ActorRefFactory
 import sbt._
 import sbt.Keys._
-import com.typesafe.web.sbt.{ LineBasedProblem, WebPlugin }
-import com.typesafe.web.sbt.WebPlugin.WebKeys
+import com.typesafe.web.sbt.LineBasedProblem
 import com.typesafe.web.sbt.incremental._
-import scala.concurrent.{ Await, Future }
 import scala.concurrent.duration._
-import scala.util.{ Failure, Success, Try }
 import spray.json._
-import xsbti.{ CompileFailed, Maybe, Position, Problem, Severity }
-import com.typesafe.web.sbt.CompileProblems
-import com.typesafe.web.sbt.WebPlugin
-
-import CoffeeScriptEngine.{ CodeError, CompileArgs, CompileSuccess, GenericError, SourceMapOptions }
+import xsbti.{Problem, Severity}
+import com.typesafe.coffeescript.CoffeeScriptEngine
+import com.typesafe.coffeescript.CoffeeScriptEngine.{ CodeError, CompileArgs, CompileSuccess, GenericError }
+import scala.Option.option2Iterable
 
 final case class CoffeeScriptPluginException(message: String) extends Exception(message)
 
