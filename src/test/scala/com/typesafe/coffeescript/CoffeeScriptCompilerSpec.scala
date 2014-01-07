@@ -130,6 +130,52 @@ class CoffeeScriptCompilerSpec extends Specification with NoTimeConversions {
       }
     }
 
+    "compile with source maps" in {
+      withTempFiles(List("x = 1"), 2) {
+        case List(tmpDir, csFile, jsFile, mapFile) =>
+          compile(CompileArgs(
+            coffeeScriptInputFile = csFile,
+            javaScriptOutputFile = jsFile,
+            sourceMapOpts = Some(SourceMapOptions(
+              sourceMapOutputFile = mapFile,
+              sourceMapRef = "<sourceMapRef>",
+              javaScriptFileName = "<javaScriptFileName>",
+              coffeeScriptRootRef = "<coffeeScriptRootRef>",
+              coffeeScriptPathRefs = List("<coffeeScriptPathRef1>", "<coffeeScriptPathRef2>")
+            )),
+            bare = false,
+            literate = false
+          ))
+      } match {
+        case (compileResult, List(jsString, mapString)) =>
+           compileResult must_== (CompileSuccess)
+           jsString must_== Some(
+            """|(function() {
+               |  var x;
+               |
+               |  x = 1;
+               |
+               |}).call(this);
+               |
+               |/*
+               |//@ sourceMappingURL="<sourceMapRef>"
+               |*/
+               |""".stripMargin('|'))
+           mapString must_== Some(
+            """|{
+               |  "version": 3,
+               |  "file": "<javaScriptFileName>",
+               |  "sourceRoot": "<coffeeScriptRootRef>",
+               |  "sources": [
+               |    "<coffeeScriptPathRef1>",
+               |    "<coffeeScriptPathRef2>"
+               |  ],
+               |  "names": [],
+               |  "mappings": "AAAA;CAAA,KAAA;;CAAA,CAAA,CAAI;CAAJ"
+               |}""".stripMargin('|'))
+      }
+    }
+
   }
 
 }
