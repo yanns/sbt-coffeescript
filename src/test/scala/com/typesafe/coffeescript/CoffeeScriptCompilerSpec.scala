@@ -23,6 +23,25 @@ class CoffeeScriptCompilerSpec extends Specification with NoTimeConversions {
 
   sequential
 
+  private def withTempFiles[T](inputStrings: List[String], outputFilesNeeded: Int)(body: List[File] => T): (T, List[Option[String]]) = {
+    IO.withTemporaryDirectory { tmpDir =>
+      var nextId = 0
+      def uniqueId: Int = {
+        val returnValue = nextId
+        nextId += 1
+        returnValue
+      }
+      val inputFiles = inputStrings.map(_ => new File(tmpDir, s"input-$uniqueId"))
+      val outputFiles = (0 until outputFilesNeeded).map(_ => new File(tmpDir, s"output-$uniqueId"))
+      inputStrings.zip(inputFiles).foreach {
+        case (string, file) => IO.write(file, string)
+      }
+      val tVal = body(List(tmpDir) ++ inputFiles ++ outputFiles)
+      val outputStrings = outputFiles.map(f => if (f.exists()) Some(IO.read(f)) else None).to[List]
+      (tVal, outputStrings)
+    }
+  }
+
   private def compile(args: CompileArgs): CompileResult = {
     implicit val actorSystem = ActorSystem()
     try {
@@ -33,66 +52,84 @@ class CoffeeScriptCompilerSpec extends Specification with NoTimeConversions {
   }
 
   "the CoffeeScript compiler" should {
-    "compile a trivial file" in IO.withTemporaryDirectory { tmpDir =>
-      val args = CompileArgs(
-        coffeeScriptInputFile = new File("/p/play/js/sbt-coffeescript-plugin/sbt-coffeescript-plugin-tester/src/main/assets/x.coffee"),
-        javaScriptOutputFile = new File(tmpDir, "y.js"),
-        sourceMapOpts = None,
-        bare = false,
-        literate = false
-      )
-      compile(args) must_== (CompileSuccess)
-      IO.read(args.javaScriptOutputFile) must_== (
-      """|(function() {
-         |  var number, opposite;
-         |
-         |  number = 42;
-         |
-         |  opposite = true;
-         |
-         |}).call(this);
-         |""".stripMargin('|'))
+
+    "compile a trivial file" in {
+      withTempFiles(List("x = 1"), 1) {
+        case List(tmpDir, csFile, jsFile) =>
+          compile(CompileArgs(
+            coffeeScriptInputFile = csFile,
+            javaScriptOutputFile = jsFile,
+            sourceMapOpts = None,
+            bare = false,
+            literate = false
+          ))
+      } match {
+        case (compileResult, List(jsString)) =>
+           compileResult must_== (CompileSuccess)
+           jsString must_== Some(
+            """|(function() {
+               |  var x;
+               |
+               |  x = 1;
+               |
+               |}).call(this);
+               |""".stripMargin('|'))
+            }
     }
 
-    "compile a bare file" in IO.withTemporaryDirectory { tmpDir =>
-      //IO.write(file, content, charset, append)
-      val args = CompileArgs(
-        coffeeScriptInputFile = new File("/p/play/js/sbt-coffeescript-plugin/sbt-coffeescript-plugin-tester/src/main/assets/x.coffee"),
-        javaScriptOutputFile = new File(tmpDir, "y.js"),
-        sourceMapOpts = None,
-        bare = true,
-        literate = false
-      )
-      compile(args) must_== (CompileSuccess)
-      IO.read(args.javaScriptOutputFile) must_== (
-      """|var number, opposite;
-         |
-         |number = 42;
-         |
-         |opposite = true;
-         |""".stripMargin('|'))
+    "compile a bare file" in {
+      withTempFiles(List("x = 1"), 1) {
+        case List(tmpDir, csFile, jsFile) =>
+          compile(CompileArgs(
+            coffeeScriptInputFile = csFile,
+            javaScriptOutputFile = jsFile,
+            sourceMapOpts = None,
+            bare = true,
+            literate = false
+          ))
+      } match {
+        case (compileResult, List(jsString)) =>
+           compileResult must_== (CompileSuccess)
+           jsString must_== Some(
+            """|var x;
+               |
+               |x = 1;
+               |""".stripMargin('|'))
+      }
     }
 
-    "compile a literate file" in IO.withTemporaryDirectory { tmpDir =>
-    val args = CompileArgs(
-        coffeeScriptInputFile = new File("/p/play/js/sbt-coffeescript-plugin/sbt-coffeescript-plugin-tester/src/main/assets/literate.litcoffee"),
-        javaScriptOutputFile = new File(tmpDir, "y.js"),
-        sourceMapOpts = None,
-        bare = false,
-        literate = true
-        )
-        compile(args) must_== (CompileSuccess)
-        IO.read(args.javaScriptOutputFile) must_== (
-        """|(function() {
-           |  var x, y;
-           |
-           |  x = 1;
-           |
-           |  y = 2;
-           |
-           |}).call(this);
-           |""".stripMargin('|'))
+    "compile a literate file" in {
+      withTempFiles(List(
+          """|Markdown markdown
+             |
+             |    x = 1
+             |    y = 2
+             |
+             |More markdown.""".stripMargin('|')), 1) {
+        case List(tmpDir, csFile, jsFile) =>
+          compile(CompileArgs(
+            coffeeScriptInputFile = csFile,
+            javaScriptOutputFile = jsFile,
+            sourceMapOpts = None,
+            bare = false,
+            literate = true
+          ))
+      } match {
+        case (compileResult, List(jsString)) =>
+          compileResult must_== (CompileSuccess)
+          jsString must_== Some(
+              """|(function() {
+               |  var x, y;
+               |
+               |  x = 1;
+               |
+               |  y = 2;
+               |
+               |}).call(this);
+               |""".stripMargin('|'))
+      }
     }
+
   }
 
 }
