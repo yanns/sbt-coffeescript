@@ -3,16 +3,13 @@
  */
 package com.typesafe.coffeescript
 
-import akka.actor.{ ActorRefFactory, Props }
-import akka.pattern.ask
-import akka.util.Timeout
 import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
-import com.typesafe.jse.Engine.{ ExecuteJs, JsExecutionResult }
+import com.typesafe.jse.Engine.{ExecuteJs, JsExecutionResult}
 import java.io.File
 import java.util.concurrent.TimeUnit
-import org.apache.commons.io.{ FileUtils, IOUtils }
+import org.apache.commons.io.{FileUtils, IOUtils}
 import scala.collection.immutable
-import scala.concurrent.{ Await, Future }
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import spray.json._
 
@@ -92,7 +89,7 @@ object CoffeeScriptCompiler {
   }
 
   // TODO: Share a single Engine instance between compilations
-  def compileFile(compileArgs: CompileArgs)(implicit actorRefFactory: ActorRefFactory): CompileResult = {
+  def compileFile(jsExecutor: JsExecutor, compileArgs: CompileArgs)(implicit ec: ExecutionContext): CompileResult = {
 
     def generateDriverFile(): File = {
       val file = File.createTempFile("sbt-coffeescript-driver", ".js") // TODO: Use SBT temp directory?
@@ -123,11 +120,9 @@ object CoffeeScriptCompiler {
     import DefaultJsonProtocol._
 
     val arg = JsonConversion.toJson(compileArgs).compactPrint
-    import actorRefFactory.dispatcher
 
-
-    val jsResult = Await.result(executeJs(Node.props(), Engine.ExecuteJs(f, immutable.Seq(arg))), reallyLongTime)
-    jsResult match {
+    val jsExecResult = jsExecutor.executeJsSync(Engine.ExecuteJs(f, immutable.Seq(arg)))
+    jsExecResult match {
       case JsExecutionResult(0, stdoutBytes, stderrBytes) if stderrBytes.length == 0 =>
         val jsonResult = (new String(stdoutBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]
         JsonConversion.fromJson(jsonResult)
@@ -139,38 +134,4 @@ object CoffeeScriptCompiler {
     }
   }
 
-  /**
-   * A timeout a long way in the future. We don't want to timeout since we can't
-   * really do anything sensible to recover. Instead the user or CI tool can cancel
-   * the build at a higher level if they think there's a problem.
-   */
-  private val reallyLongTime = FiniteDuration(100, TimeUnit.DAYS)
-
-  private def executeJs(engineProps: Props, msg: Engine.ExecuteJs)(implicit actorRefFactory: ActorRefFactory): Future[JsExecutionResult] = {
-    val engine = actorRefFactory.actorOf(Node.props()) // FIXME: There was a name clash with "engine"
-    // FIXME: Pass over stdin, command line argument length is limited?
-    implicit val msgTimeout = Timeout(reallyLongTime)
-    (engine ? msg).mapTo[JsExecutionResult]
-  }
-
-  // def main(args: Array[String]) {
-  //   implicit val system = ActorSystem("jse-system")
-  //   implicit val timeout = Timeout(5.seconds)
-  //   try {
-  //     val result = compileFile(CompileArgs(
-  //       input = new File("/p/play/js/sbt-coffeescript/src/main/resources/com/typesafe/sbt/coffeescript/test.coffee"),
-  //       output = new File("/p/play/js/sbt-coffeescript/target/test.js"),
-  //       sourceMap = None,
-  //       bare = false,
-  //       literate = false
-  //     ))
-  //     println(result)
-  //   } finally {
-  //     println("Running shutdown")
-  //     system.shutdown()
-  //     println("Waiting for termination")
-  //     system.awaitTermination()
-  //     println("Terminated")
-  //   }
-  // }
 }

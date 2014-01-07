@@ -5,14 +5,15 @@ package com.typesafe.coffeescript.sbt
 
 import akka.actor.ActorRefFactory
 import com.typesafe.coffeescript._
+import com.typesafe.jse.Node
 import com.typesafe.web.sbt.{ CompileProblems, LineBasedProblem, WebPlugin }
 import com.typesafe.web.sbt.WebPlugin.WebKeys
 import com.typesafe.web.sbt.incremental._
 import _root_.sbt._
 import _root_.sbt.Keys._
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import spray.json._
-import scala.Option.option2Iterable
 import xsbti.{Problem, Severity}
 
 final case class CoffeeScriptPluginException(message: String) extends Exception(message)
@@ -103,8 +104,10 @@ object CoffeeScriptPlugin extends Plugin {
           log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
 
           WebPlugin.withActorRefFactory(sbtState, "coffeeScriptCompile") { implicit actorRefFactory =>
+            import actorRefFactory.dispatcher
+            val jsExecutor = new DefaultJsExecutor(Node.props(), actorRefFactory)
             neededCompiles.foldLeft[(Map[CompileArgs,OpResult], Seq[Problem])]((Map.empty, Seq.empty)) {
-              case ((resultMap, problemSeq), compilation) => runSingleCompile(compilation) match {
+              case ((resultMap, problemSeq), compilation) => runSingleCompile(jsExecutor, compilation) match {
                 case (newResult, newProblems) => (resultMap.updated(compilation, newResult), problemSeq ++ newProblems)
               }
             }
@@ -121,8 +124,8 @@ object CoffeeScriptPlugin extends Plugin {
     }
   )
 
-  def runSingleCompile(compilation: CompileArgs)(implicit actorRefFactory: ActorRefFactory): (OpResult, Seq[Problem]) = {
-    CoffeeScriptCompiler.compileFile(compilation) match {
+  def runSingleCompile(jsExecutor: JsExecutor, compilation: CompileArgs)(implicit ec: ExecutionContext): (OpResult, Seq[Problem]) = {
+    CoffeeScriptCompiler.compileFile(jsExecutor, compilation) match {
       case CompileSuccess =>
         (
           OpSuccess(

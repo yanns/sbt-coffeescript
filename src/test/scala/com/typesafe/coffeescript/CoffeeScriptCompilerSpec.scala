@@ -1,5 +1,6 @@
-package com.typesafe.coffeescript;
+package com.typesafe.coffeescript
 
+import com.typesafe.jse.Node
 import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
 import org.specs2.mutable.Specification
@@ -45,7 +46,9 @@ class CoffeeScriptCompilerSpec extends Specification with NoTimeConversions {
   private def compile(args: CompileArgs): CompileResult = {
     implicit val actorSystem = ActorSystem()
     try {
-      CoffeeScriptCompiler.compileFile(args)
+      import actorSystem.dispatcher
+      val jsExecutor = new DefaultJsExecutor(Node.props(), actorSystem)
+      CoffeeScriptCompiler.compileFile(jsExecutor, args)
     } finally {
       actorSystem.shutdown()
     }
