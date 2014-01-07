@@ -4,16 +4,16 @@
 package com.typesafe.coffeescript.sbt
 
 import akka.actor.ActorRefFactory
-import sbt._
-import sbt.Keys._
-import com.typesafe.web.sbt.LineBasedProblem
+import com.typesafe.coffeescript._
+import com.typesafe.web.sbt.{ CompileProblems, LineBasedProblem, WebPlugin }
+import com.typesafe.web.sbt.WebPlugin.WebKeys
 import com.typesafe.web.sbt.incremental._
+import _root_.sbt._
+import _root_.sbt.Keys._
 import scala.concurrent.duration._
 import spray.json._
-import xsbti.{Problem, Severity}
-import com.typesafe.coffeescript.CoffeeScriptEngine
-import com.typesafe.coffeescript.CoffeeScriptEngine.{ CodeError, CompileArgs, CompileSuccess, GenericError }
 import scala.Option.option2Iterable
+import xsbti.{Problem, Severity}
 
 final case class CoffeeScriptPluginException(message: String) extends Exception(message)
 
@@ -122,7 +122,7 @@ object CoffeeScriptPlugin extends Plugin {
   )
 
   def runSingleCompile(compilation: CompileArgs)(implicit actorRefFactory: ActorRefFactory): (OpResult, Seq[Problem]) = {
-    CoffeeScriptEngine.compileFile(compilation) match {
+    CoffeeScriptCompiler.compileFile(compilation) match {
       case CompileSuccess =>
         (
           OpSuccess(
@@ -151,8 +151,8 @@ object CoffeeScriptPlugin extends Plugin {
     // TODO: Put in sbt-web
   object TodoWeb {
     def webSettings: Seq[Setting[_]] = Seq[Setting[_]](
-      compile in Compile := (compile in Compile).value ++ (compile in WebKeys.Assets).value,
-      compile in Test := (compile in Test).value ++ (compile in WebKeys.TestAssets).value
+      (compile in Compile) <<= (compile in Compile).dependsOn(compile in WebKeys.Assets),
+      (compile in Test) <<= (compile in Test).dependsOn(compile in WebKeys.TestAssets)
     ) ++ Project.inConfig(WebKeys.Assets)(scopedSettings) ++ Project.inConfig(WebKeys.TestAssets)(scopedSettings)
 
     def scopedSettings: Seq[Setting[_]] = Seq(

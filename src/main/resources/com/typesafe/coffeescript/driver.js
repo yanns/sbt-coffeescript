@@ -24,12 +24,11 @@ path = require('path');
 // - passing those arguments to the `compileFile` function
 // - JSON encoding the function's return value and writing it to stdout.
 
-function trace(output) {
-  //console.log(output);
-  //process.stderr.write(output);
+function trace(/*arguments*/) {
+  //console.error.apply(console, arguments);
 }
 
-//trace(process.argv[2]);
+trace('Command line arguments:', process.argv[2]);
 var opts = JSON.parse(process.argv[2]);
 var result = compileFile(opts);
 process.stdout.write(JSON.stringify(result));
@@ -47,6 +46,7 @@ function makeParentDirs(childPath) {
 // Returns an object indicating success of failure.
 // The result object uses primitive JS types only, so that it can be JSON encoded.
 function compileFile(fileOptions) {
+  trace('fileOptions', fileOptions);
 
   try {
     var compileOpts = {
@@ -64,6 +64,7 @@ function compileFile(fileOptions) {
     var code = fs.readFileSync(fileOptions.coffeeScriptInputFile).toString();
     var compileResult;
     try {
+      trace('compileOpts', compileOpts);
       compileResult = CoffeeScript.compile(code, compileOpts);
     } catch (err) {
       // Handle compilation errors
@@ -77,22 +78,28 @@ function compileFile(fileOptions) {
       };
     }
 
+    // Flatten source output into vars
     var jsOutput;
     var sourceMapOutput;
-    if (generateSourceMap) {
-      jsOutput = compileResult.js + "\n/*\n//@ sourceMappingURL=\"" + fileOptions.sourceMapOpts.sourceMapRef + "\"\n*/\n";
+    if (compileResult.js) {
+      jsOutput = compileResult.js;
       sourceMapOutput = compileResult.v3SourceMap;
     } else {
-      if (!(compileResult instanceof String)) throw Error("Unexpected compile result type, expected String: " + compileResult);
       jsOutput = compileResult;
       sourceMapOutput = null;
     }
 
-    //trace(jsOutput);
+    // Modify source to reference source map
+    if (generateSourceMap) {
+      jsOutput = jsOutput + "\n/*\n//@ sourceMappingURL=\"" + fileOptions.sourceMapOpts.sourceMapRef + "\"\n*/\n";
+    }
 
     makeParentDirs(fileOptions.javaScriptOutputFile);
     fs.writeFileSync(fileOptions.javaScriptOutputFile, jsOutput);
+
+    // Write source map file
     if (generateSourceMap) {
+      if (sourceMapOutput == null) throw Error("Failed to write source map: source map was not generated")
       makeParentDirs(fileOptions.sourceMapOpts.sourceMapOutputFile);
       fs.writeFileSync(fileOptions.sourceMapOpts.sourceMapOutputFile, sourceMapOutput);
     }

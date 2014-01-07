@@ -16,40 +16,41 @@ import scala.concurrent.{ Await, Future }
 import scala.concurrent.duration._
 import spray.json._
 
-final case class CoffeeScriptEngineException(message: String) extends Exception(message)
+final case class CompileArgs(
+  coffeeScriptInputFile: File,
+  javaScriptOutputFile: File,
+  sourceMapOpts: Option[SourceMapOptions],
+  bare: Boolean,
+  literate: Boolean
+)
 
-object CoffeeScriptEngine {
+/**
+ * @param sourceMapOutputFile The file to write the source map to.
+ * @param sourceMapRef A reference to .
+ * @param javaScriptURL The URL of the source CoffeeScript files when served; can be absolute or relative to the map file.
+ */
+final case class SourceMapOptions(
+  sourceMapOutputFile: File,
+  sourceMapRef: String,
+  javaScriptFileName: String,
+  coffeeScriptRootRef: String,
+  coffeeScriptPathRefs: List[String]
+)
 
-  final case class CompileArgs(
-    coffeeScriptInputFile: File,
-    javaScriptOutputFile: File,
-    sourceMapOpts: Option[SourceMapOptions],
-    bare: Boolean,
-    literate: Boolean
-  )
+sealed trait CompileResult
+final case object CompileSuccess extends CompileResult
+final case class GenericError(message: String) extends CompileResult
+final case class CodeError(
+  message: String,
+  lineContent: String,
+  lineNumber: Int,
+  lineOffset: Int
+) extends CompileResult
 
-  /**
-   * @param sourceMapOutputFile The file to write the source map to.
-   * @param sourceMapRef A reference to .
-   * @param javaScriptURL The URL of the source CoffeeScript files when served; can be absolute or relative to the map file.
-   */
-  final case class SourceMapOptions(
-    sourceMapOutputFile: File,
-    sourceMapRef: String,
-    javaScriptFileName: String,
-    coffeeScriptRootRef: String,
-    coffeeScriptPathRefs: List[String]
-  )
 
-  sealed trait CompileResult
-  final case object CompileSuccess extends CompileResult
-  final case class GenericError(message: String) extends CompileResult
-  final case class CodeError(
-    message: String,
-    lineContent: String,
-    lineNumber: Int,
-    lineOffset: Int
-  ) extends CompileResult
+final case class CoffeeScriptCompilerException(message: String) extends Exception(message)
+
+object CoffeeScriptCompiler {
 
   object JsonConversion {
     def toJson(args: CompileArgs): JsObject = {
@@ -85,7 +86,7 @@ object CoffeeScriptEngine {
         case "GenericError" =>
           GenericError(json.fields("message").asInstanceOf[JsString].value)
         case _ =>
-          throw CoffeeScriptEngineException(s"Unknown JSON result running CoffeeScript driver: $json")
+          throw CoffeeScriptCompilerException(s"Unknown JSON result running CoffeeScript driver: $json")
       }
     }
   }
@@ -109,7 +110,7 @@ object CoffeeScriptEngine {
             resStream.close()
           }
         }
-        writeResource("com/typesafe/sbt/coffeescript/driver.js")
+        writeResource("com/typesafe/coffeescript/driver.js")
 
       } finally {
         fileStream.close()
@@ -134,7 +135,7 @@ object CoffeeScriptEngine {
         val exitValue = result.exitValue
         val stdout = new String(result.output.toArray, "utf-8")
         val stderr = new String(result.error.toArray, "utf-8")
-        throw CoffeeScriptEngineException(s"Unexpected result running CoffeeScript driver: exit value: $exitValue, stdout: $stdout, stderr: $stderr")
+        throw CoffeeScriptCompilerException(s"Unexpected result running CoffeeScript driver: exit value: $exitValue, stdout: $stdout, stderr: $stderr")
     }
   }
 
