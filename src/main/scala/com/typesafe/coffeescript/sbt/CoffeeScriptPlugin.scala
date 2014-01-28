@@ -95,19 +95,22 @@ object CoffeeScriptPlugin extends Plugin {
       val log = streams.value.log
       val compiles = CoffeeScriptKeys.compileArgs.value.to[Vector]
       val sbtState = state.value
+      val cacheDirectory = streams.value.cacheDirectory
 
-      val problems = runIncremental[CompileArgs, Seq[Problem]](streams.value, compiles) { neededCompiles: Seq[CompileArgs] =>
+      val problems = runIncremental[CompileArgs, Seq[Problem]](cacheDirectory, compiles) { neededCompiles: Seq[CompileArgs] =>
         val sourceCount = neededCompiles.length
 
         if (sourceCount == 0) (Map.empty, Seq.empty) else {
           val sourceString = if (sourceCount == 1) "source" else "sources"
           log.info(s"Compiling ${sourceCount} CoffeeScript ${sourceString}...")
 
+          val compiler = CoffeeScriptCompiler.withShellFileCopiedTo(cacheDirectory / "shell.js")
+
           WebPlugin.withActorRefFactory(sbtState, "coffeeScriptCompile") { implicit actorRefFactory =>
             import actorRefFactory.dispatcher
             val jsExecutor = new DefaultJsExecutor(Node.props(), actorRefFactory)
             neededCompiles.foldLeft[(Map[CompileArgs,OpResult], Seq[Problem])]((Map.empty, Seq.empty)) {
-              case ((resultMap, problemSeq), compilation) => runSingleCompile(jsExecutor, compilation) match {
+              case ((resultMap, problemSeq), compilation) => runSingleCompile(compiler, jsExecutor, compilation) match {
                 case (newResult, newProblems) => (resultMap.updated(compilation, newResult), problemSeq ++ newProblems)
               }
             }
@@ -124,8 +127,8 @@ object CoffeeScriptPlugin extends Plugin {
     }
   )
 
-  def runSingleCompile(jsExecutor: JsExecutor, compilation: CompileArgs)(implicit ec: ExecutionContext): (OpResult, Seq[Problem]) = {
-    CoffeeScriptCompiler.compileFile(jsExecutor, compilation) match {
+  def runSingleCompile(compiler: CoffeeScriptCompiler, jsExecutor: JsExecutor, compilation: CompileArgs)(implicit ec: ExecutionContext): (OpResult, Seq[Problem]) = {
+    compiler.compileFile(jsExecutor, compilation) match {
       case CompileSuccess =>
         (
           OpSuccess(

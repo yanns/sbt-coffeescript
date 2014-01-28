@@ -5,9 +5,10 @@ package com.typesafe.coffeescript
 
 import com.typesafe.jse.{Rhino, CommonNode, Node, Engine}
 import com.typesafe.jse.Engine.{ExecuteJs, JsExecutionResult}
-import java.io.File
+import com.typesafe.web.sbt.WebPlugin
+import java.io.{InputStream, File}
 import java.util.concurrent.TimeUnit
-import org.apache.commons.io.{FileUtils, IOUtils}
+import _root_.sbt.IO
 import scala.collection.immutable
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
@@ -44,12 +45,24 @@ final case class CodeError(
   lineOffset: Int
 ) extends CompileResult
 
-
 final case class CoffeeScriptCompilerException(message: String) extends Exception(message)
 
 object CoffeeScriptCompiler {
 
+  def shellContent[A](f: InputStream => A): A = {
+    val resource = "com/typesafe/coffeescript/driver.js"
+    val classLoader = CoffeeScriptCompiler.getClass.getClassLoader
+    val is = classLoader.getResourceAsStream(resource)
+    try f(is) finally is.close()
+  }
+
+  def withShellFileCopiedTo(file: File): CoffeeScriptCompiler = {
+    shellContent(is => IO.transfer(is, file))
+    new CoffeeScriptCompiler(file)
+  }
+
   object JsonConversion {
+    import DefaultJsonProtocol._
     def toJson(args: CompileArgs): JsObject = {
       import args._
       JsObject(
@@ -88,40 +101,17 @@ object CoffeeScriptCompiler {
     }
   }
 
-  // TODO: Share a single Engine instance between compilations
+}
+
+class CoffeeScriptCompiler(shellFile: File) {
+
   def compileFile(jsExecutor: JsExecutor, compileArgs: CompileArgs)(implicit ec: ExecutionContext): CompileResult = {
 
-    def generateDriverFile(): File = {
-      val file = File.createTempFile("sbt-coffeescript-driver", ".js") // TODO: Use SBT temp directory?
-      file.deleteOnExit()
-
-      val fileStream = FileUtils.openOutputStream(file)
-      try {
-
-        def writeResource(resName: String) {
-          val cl = this.getClass.getClassLoader // TODO: Make ClassLoader switchable
-          val resStream = cl.getResourceAsStream(resName)
-          try {
-            IOUtils.copy(resStream, fileStream)
-          } finally {
-            resStream.close()
-          }
-        }
-        writeResource("com/typesafe/coffeescript/driver.js")
-
-      } finally {
-        fileStream.close()
-      }
-
-      file
-    }
-    val f = generateDriverFile()
-
-    import DefaultJsonProtocol._
+    import CoffeeScriptCompiler.JsonConversion
 
     val arg = JsonConversion.toJson(compileArgs).compactPrint
 
-    val jsExecResult = jsExecutor.executeJsSync(Engine.ExecuteJs(f, immutable.Seq(arg)))
+    val jsExecResult = jsExecutor.executeJsSync(Engine.ExecuteJs(shellFile, immutable.Seq(arg)))
     jsExecResult match {
       case JsExecutionResult(0, stdoutBytes, stderrBytes) if stderrBytes.length == 0 =>
         val jsonResult = (new String(stdoutBytes.toArray, "utf-8")).asJson.asInstanceOf[JsObject]

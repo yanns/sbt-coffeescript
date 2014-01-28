@@ -12,7 +12,6 @@ scalacOptions += "-feature"
 
 libraryDependencies ++= Seq(
   "org.webjars" % "coffee-script" % "1.6.3",
-  "commons-io" % "commons-io" % "2.4",
   "org.specs2" %% "specs2" % "2.3.7" % "test",
   "junit" % "junit" % "4.11" % "test"
 )

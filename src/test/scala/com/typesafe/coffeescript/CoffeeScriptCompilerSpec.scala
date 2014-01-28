@@ -48,7 +48,10 @@ class CoffeeScriptCompilerSpec extends Specification with NoTimeConversions {
     try {
       import actorSystem.dispatcher
       val jsExecutor = new DefaultJsExecutor(Node.props(), actorSystem)
-      CoffeeScriptCompiler.compileFile(jsExecutor, args)
+      val tempFile = File.createTempFile("sbt-coffeescript-shell", ".js")
+      tempFile.deleteOnExit()
+      val compiler = CoffeeScriptCompiler.withShellFileCopiedTo(tempFile)
+      compiler.compileFile(jsExecutor, args)
     } finally {
       actorSystem.shutdown()
     }
