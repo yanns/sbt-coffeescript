@@ -164,7 +164,7 @@ class CoffeeScriptCompilerSpec extends Specification with NoTimeConversions {
                |}).call(this);
                |
                |/*
-               |//@ sourceMappingURL="<sourceMapRef>"
+               |//@ sourceMappingURL=<sourceMapRef>
                |*/
                |""".stripMargin('|'))
            mapString must_== Some(

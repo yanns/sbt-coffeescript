@@ -91,7 +91,7 @@ function compileFile(fileOptions) {
 
     // Modify source to reference source map
     if (generateSourceMap) {
-      jsOutput = jsOutput + "\n/*\n//@ sourceMappingURL=\"" + fileOptions.sourceMapOpts.sourceMapRef + "\"\n*/\n";
+      jsOutput = jsOutput + "\n/*\n//@ sourceMappingURL=" + fileOptions.sourceMapOpts.sourceMapRef + "\n*/\n";
     }
 
     makeParentDirs(fileOptions.javaScriptOutputFile);
