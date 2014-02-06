@@ -1,1 +1,0 @@
-addSbtPlugin("com.typesafe" % "sbt-coffeescript-plugin" % sys.props("project.version"))
