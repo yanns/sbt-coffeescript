@@ -1,5 +1,11 @@
+import com.typesafe.sbt.jse.SbtJsTaskPlugin
+
 webSettings
+
+SbtJsTaskPlugin.jsEngineAndTaskSettings
 
 coffeeScriptSettings
 
-CoffeeScriptKeys.sourceMaps := true
+//JsEngineKeys.engineType := JsEngineKeys.EngineType.Node
+
+//CoffeeScriptKeys.sourceMaps := false
