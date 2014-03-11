@@ -1,19 +1,25 @@
 sbt-coffeescript-plugin
 =======================
 
+[![Build Status](https://api.travis-ci.org/sbt/sbt-coffeescript-plugin.png?branch=master)](https://travis-ci.org/sbt/sbt-coffeescript-plugin)
+
 An SBT plugin to compile [CoffeeScript](http://coffeescript.org/) sources to JavaScript.
 
 To use this plugin use the addSbtPlugin command within your project's `plugins.sbt` file:
 
-    addSbtPlugin("com.typesafe" % "sbt-coffeescript-plugin" % "0.1-SNAPSHOT")
+    addSbtPlugin("com.typesafe.sbt" % "sbt-coffeescript-plugin" % "1.0.0-SNAPSHOT")
 
 And add the following settings to your `build.sbt` file.
 
-    webSettings
+    import com.typesafe.sbt.web.SbtWebPlugin
+    import com.typesafe.sbt.jse.SbtJsTaskPlugin
+    import com.typesafe.sbt.coffeescript.SbtCoffeeScriptPlugin
 
-    jsEngineSettings
+    SbtWebPlugin.webSettings
 
-    coffeeScriptSettings
+    SbtJsTaskPlugin.jsEngineAndTaskSettings
+
+    SbtCoffeeScriptPlugin.coffeeScriptSettings
 
 Once configured, any `*.coffee` or `*.litcoffee` files placed in `src/main/assets` will be compiled to JavaScript code in `target/public`.
 
@@ -27,6 +33,6 @@ Supported settings:
 
   `CoffeeScriptKeys.bare := false`
 
-The plugin is built on top of [JavaScript Engine](https://github.com/typesafehub/js-engine) which supports different JavaScript runtimes. At present, the CoffeeScript plugin only supports [Node](http://nodejs.org/).
+The plugin is built on top of [JavaScript Engine](https://github.com/typesafehub/js-engine) which supports different JavaScript runtimes.
 
 &copy; Typesafe Inc., 2013-2014
