@@ -7,21 +7,15 @@ An SBT plugin to compile [CoffeeScript](http://coffeescript.org/) sources to Jav
 
 To use this plugin use the addSbtPlugin command within your project's `plugins.sbt` file:
 
+    resolvers ++= Seq(
+        Resolver.url("sbt snapshot plugins", url("http://repo.scala-sbt.org/scalasbt/sbt-plugin-snapshots"))(Resolver.ivyStylePatterns),
+        Resolver.sonatypeRepo("snapshots"),
+        "Typesafe Snapshots Repository" at "http://repo.typesafe.com/typesafe/snapshots/"
+        )
+
     addSbtPlugin("com.typesafe.sbt" % "sbt-coffeescript-plugin" % "1.0.0-SNAPSHOT")
 
-And add the following settings to your `build.sbt` file.
-
-    import com.typesafe.sbt.web.SbtWebPlugin
-    import com.typesafe.sbt.jse.SbtJsTaskPlugin
-    import com.typesafe.sbt.coffeescript.SbtCoffeeScriptPlugin
-
-    SbtWebPlugin.webSettings
-
-    SbtJsTaskPlugin.jsEngineAndTaskSettings
-
-    SbtCoffeeScriptPlugin.coffeeScriptSettings
-
-Once configured, any `*.coffee` or `*.litcoffee` files placed in `src/main/assets` will be compiled to JavaScript code in `target/public`.
+Once configured, any `*.coffee` or `*.litcoffee` files placed in `src/main/assets` will be compiled to JavaScript code in `target/web/public`.
 
 Supported settings:
 

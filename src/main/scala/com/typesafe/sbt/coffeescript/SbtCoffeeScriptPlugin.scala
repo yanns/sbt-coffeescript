@@ -1,12 +1,14 @@
 package com.typesafe.sbt.coffeescript
 
-import sbt._
-import sbt.Keys._
-import spray.json._
 import com.typesafe.sbt.jse.SbtJsTaskPlugin
+import sbt._
 import com.typesafe.sbt.web.SbtWebPlugin
+import spray.json.{JsBoolean, JsObject}
+import sbt.Keys._
 
-object SbtCoffeeScriptPlugin extends SbtJsTaskPlugin {
+object SbtCoffeeScriptPlugin extends AutoPlugin {
+
+  def select = SbtJsTaskPlugin
 
   object CoffeescriptKeys {
     val coffeescript = TaskKey[Seq[File]]("coffeescript", "Invoke the CoffeeScript compiler.")
@@ -16,6 +18,7 @@ object SbtCoffeeScriptPlugin extends SbtJsTaskPlugin {
   }
 
   import SbtWebPlugin.WebKeys._
+  import SbtJsTaskPlugin._
   import SbtJsTaskPlugin.JsTaskKeys._
   import CoffeescriptKeys._
 
@@ -27,7 +30,7 @@ object SbtCoffeeScriptPlugin extends SbtJsTaskPlugin {
     ).toString()
   )
 
-  val coffeeScriptSettings = Seq(
+  override def projectSettings = Seq(
     bare := false,
     sourceMap := true
 

@@ -1,10 +1,5 @@
-import com.typesafe.sbt.jse.SbtJsTaskPlugin
+import com.typesafe.sbt.web.SbtWebPlugin._
 
-webSettings
-
-SbtJsTaskPlugin.jsEngineAndTaskSettings
-
-coffeeScriptSettings
 
 val checkMapFileContents = taskKey[Unit]("check that map contents are correct")
 
