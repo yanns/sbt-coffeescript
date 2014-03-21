@@ -61,7 +61,7 @@
 
                     var js = compileResult.js;
                     if (options.sourceMap) {
-                        js = js + "\n/*\n//@ sourceMappingURL=" + path.basename(sourceMapOutput) + "\n*/\n";
+                        js = js + "\n//# sourceMappingURL=" + path.basename(sourceMapOutput) + "\n";
                     }
 
                     fs.writeFile(output, js, "utf8", function (e) {

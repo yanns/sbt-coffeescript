@@ -1,2 +1,3 @@
-number   = 42
-opposite = true
+define ->
+  number   = 42
+  opposite = true
