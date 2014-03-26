@@ -8,7 +8,8 @@ import sbt.Keys._
 
 object SbtCoffeeScriptPlugin extends AutoPlugin {
 
-  def select = SbtJsTaskPlugin
+  override def requires = SbtJsTaskPlugin
+  override def trigger = AllRequirements
 
   object CoffeescriptKeys {
     val coffeescript = TaskKey[Seq[File]]("coffeescript", "Invoke the CoffeeScript compiler.")

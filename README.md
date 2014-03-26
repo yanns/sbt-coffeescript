@@ -15,6 +15,12 @@ To use this plugin use the addSbtPlugin command within your project's `plugins.s
 
     addSbtPlugin("com.typesafe.sbt" % "sbt-coffeescript-plugin" % "1.0.0-SNAPSHOT")
 
+Your project's build file also needs to enable sbt-web plugins. For example with build.sbt:
+
+    import com.typesafe.sbt.web.SbtWebPlugin
+
+    lazy val root = project.in(file(".")).addPlugins(SbtWebPlugin)
+
 Once configured, any `*.coffee` or `*.litcoffee` files placed in `src/main/assets` will be compiled to JavaScript code in `target/web/public`.
 
 Supported settings:
