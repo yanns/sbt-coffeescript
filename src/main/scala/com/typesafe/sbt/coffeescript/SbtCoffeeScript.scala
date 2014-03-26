@@ -1,14 +1,14 @@
 package com.typesafe.sbt.coffeescript
 
-import com.typesafe.sbt.jse.SbtJsTaskPlugin
+import com.typesafe.sbt.jse.SbtJsTask
 import sbt._
-import com.typesafe.sbt.web.SbtWebPlugin
+import com.typesafe.sbt.web.SbtWeb
 import spray.json.{JsBoolean, JsObject}
 import sbt.Keys._
 
-object SbtCoffeeScriptPlugin extends AutoPlugin {
+object SbtCoffeeScript extends AutoPlugin {
 
-  override def requires = SbtJsTaskPlugin
+  override def requires = SbtJsTask
   override def trigger = AllRequirements
 
   object CoffeescriptKeys {
@@ -18,9 +18,9 @@ object SbtCoffeeScriptPlugin extends AutoPlugin {
     val sourceMap = SettingKey[Boolean]("coffeescript-source-map", "Outputs a v3 sourcemap.")
   }
 
-  import SbtWebPlugin.WebKeys._
-  import SbtJsTaskPlugin._
-  import SbtJsTaskPlugin.JsTaskKeys._
+  import SbtWeb.WebKeys._
+  import SbtJsTask._
+  import SbtJsTask.JsTaskKeys._
   import CoffeescriptKeys._
 
   val coffeeScriptUnscopedSettings = Seq(

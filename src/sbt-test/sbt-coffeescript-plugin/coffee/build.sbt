@@ -1,7 +1,7 @@
-import com.typesafe.sbt.web.SbtWebPlugin
-import com.typesafe.sbt.web.SbtWebPlugin._
+import com.typesafe.sbt.web.SbtWeb
+import com.typesafe.sbt.web.SbtWeb._
 
-lazy val root = project.in(file(".")).addPlugins(SbtWebPlugin)
+lazy val root = project.in(file(".")).addPlugins(SbtWeb)
 
 val checkMapFileContents = taskKey[Unit]("check that map contents are correct")
 
