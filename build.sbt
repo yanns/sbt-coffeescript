@@ -2,7 +2,7 @@ sbtPlugin := true
 
 organization := "com.typesafe.sbt"
 
-name := "sbt-coffeescript-plugin"
+name := "sbt-coffeescript"
 
 version := "1.0.0-SNAPSHOT"
 

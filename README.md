@@ -1,7 +1,7 @@
-sbt-coffeescript-plugin
-=======================
+sbt-coffeescript
+================
 
-[![Build Status](https://api.travis-ci.org/sbt/sbt-coffeescript-plugin.png?branch=master)](https://travis-ci.org/sbt/sbt-coffeescript-plugin)
+[![Build Status](https://api.travis-ci.org/sbt/sbt-coffeescript.png?branch=master)](https://travis-ci.org/sbt/sbt-coffeescript)
 
 An SBT plugin to compile [CoffeeScript](http://coffeescript.org/) sources to JavaScript.
 
@@ -13,7 +13,7 @@ To use this plugin use the addSbtPlugin command within your project's `plugins.s
         "Typesafe Snapshots Repository" at "http://repo.typesafe.com/typesafe/snapshots/"
         )
 
-    addSbtPlugin("com.typesafe.sbt" % "sbt-coffeescript-plugin" % "1.0.0-SNAPSHOT")
+    addSbtPlugin("com.typesafe.sbt" % "sbt-coffeescript" % "1.0.0-SNAPSHOT")
 
 Your project's build file also needs to enable sbt-web plugins. For example with build.sbt:
 
