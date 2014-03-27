@@ -1,5 +1,4 @@
 import com.typesafe.sbt.web.SbtWeb
-import com.typesafe.sbt.web.SbtWeb._
 
 lazy val root = project.in(file(".")).addPlugins(SbtWeb)
 

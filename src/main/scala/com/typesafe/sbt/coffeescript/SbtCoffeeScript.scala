@@ -6,10 +6,7 @@ import com.typesafe.sbt.web.SbtWeb
 import spray.json.{JsBoolean, JsObject}
 import sbt.Keys._
 
-object SbtCoffeeScript extends AutoPlugin {
-
-  override def requires = SbtJsTask
-  override def trigger = AllRequirements
+object Import {
 
   object CoffeescriptKeys {
     val coffeescript = TaskKey[Seq[File]]("coffeescript", "Invoke the CoffeeScript compiler.")
@@ -18,10 +15,19 @@ object SbtCoffeeScript extends AutoPlugin {
     val sourceMap = SettingKey[Boolean]("coffeescript-source-map", "Outputs a v3 sourcemap.")
   }
 
-  import SbtWeb.WebKeys._
-  import SbtJsTask._
-  import SbtJsTask.JsTaskKeys._
-  import CoffeescriptKeys._
+}
+
+object SbtCoffeeScript extends AutoPlugin {
+
+  override def requires = SbtJsTask
+
+  override def trigger = AllRequirements
+
+  val autoImport = Import
+
+  import SbtWeb.autoImport.WebKeys._
+  import SbtJsTask.autoImport.JsTaskKeys._
+  import autoImport.CoffeescriptKeys._
 
   val coffeeScriptUnscopedSettings = Seq(
 
@@ -36,7 +42,7 @@ object SbtCoffeeScript extends AutoPlugin {
     sourceMap := true
 
   ) ++ inTask(coffeescript)(
-    jsTaskSpecificUnscopedSettings ++
+    SbtJsTask.jsTaskSpecificUnscopedSettings ++
       inConfig(Assets)(coffeeScriptUnscopedSettings) ++
       inConfig(TestAssets)(coffeeScriptUnscopedSettings) ++
       Seq(
@@ -47,7 +53,7 @@ object SbtCoffeeScript extends AutoPlugin {
         taskMessage in Assets := "CoffeeScript compiling",
         taskMessage in TestAssets := "CoffeeScript test compiling"
       )
-  ) ++ addJsSourceFileTasks(coffeescript) ++ Seq(
+  ) ++ SbtJsTask.addJsSourceFileTasks(coffeescript) ++ Seq(
     coffeescript in Assets := (coffeescript in Assets).dependsOn(webModules in Assets).value,
     coffeescript in TestAssets := (coffeescript in TestAssets).dependsOn(webModules in TestAssets).value
   )
