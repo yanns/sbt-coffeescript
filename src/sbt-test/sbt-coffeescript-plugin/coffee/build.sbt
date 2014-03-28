@@ -1,11 +1,9 @@
-import com.typesafe.sbt.web.SbtWeb
-
-lazy val root = project.in(file(".")).addPlugins(SbtWeb)
+lazy val root = (project in file(".")).addPlugins(SbtWeb)
 
 val checkMapFileContents = taskKey[Unit]("check that map contents are correct")
 
 checkMapFileContents := {
-  val contents = IO.read((WebKeys.public in WebKeys.Assets).value / "coffee" / "a.js.map")
+  val contents = IO.read((WebKeys.public in Assets).value / "coffee" / "a.js.map")
   if (contents != """{
                     |  "version": 3,
                     |  "file": "a.js",
