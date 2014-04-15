@@ -1,9 +1,9 @@
 lazy val root = (project in file(".")).addPlugins(SbtWeb)
 
-val checkMapFileContents = taskKey[Unit]("check that map contents are correct")
+/*val checkMapFileContents = taskKey[Unit]("check that map contents are correct")
 
 checkMapFileContents := {
-  val contents = IO.read((WebKeys.public in Assets).value / "coffee" / "a.js.map")
+  val contents = IO.read((WebKeys.public in Assets).value / "jsx" / "a.js.map")
   if (contents != """{
                     |  "version": 3,
                     |  "file": "a.js",
@@ -16,4 +16,4 @@ checkMapFileContents := {
                     |}""".stripMargin) {
     sys.error(s"Unexpected contents: $contents")
   }
-}
+}*/

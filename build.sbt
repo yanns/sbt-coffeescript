@@ -2,16 +2,16 @@ sbtPlugin := true
 
 organization := "com.typesafe.sbt"
 
-name := "sbt-coffeescript"
+name := "sbt-react-jsx"
 
-version := "1.0.0-SNAPSHOT"
+version := "0.1.0-SNAPSHOT"
 
 scalaVersion := "2.10.3"
 
 scalacOptions += "-feature"
 
 libraryDependencies ++= Seq(
-  "org.webjars" % "coffee-script-node" % "1.7.1",
+  "org.webjars" % "react-node" % "0.1.0-SNAPSHOT",
   "org.webjars" % "mkdirp" % "0.3.5"
 )
 

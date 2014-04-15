@@ -1,0 +1,7 @@
+# Compile a CoffeeScript file
+
+> assets
+$ exists target/web/public/main/jsx/a.js
+
+> checkMapFileContents
+
