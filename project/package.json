@@ -1,0 +1,7 @@
+{
+    "name": "somename",
+    "version": "1.0.0",
+    "dependencies": {
+        "react-tools": "0.10.0"
+    }
+}

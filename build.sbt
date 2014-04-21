@@ -11,7 +11,6 @@ scalaVersion := "2.10.3"
 scalacOptions += "-feature"
 
 libraryDependencies ++= Seq(
-  "org.webjars" % "react-node" % "0.1.0-SNAPSHOT",
   "org.webjars" % "mkdirp" % "0.3.5"
 )
 
