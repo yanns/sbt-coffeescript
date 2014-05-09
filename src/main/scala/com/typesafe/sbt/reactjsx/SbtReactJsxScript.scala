@@ -31,6 +31,8 @@ object SbtReactJsxScript extends AutoPlugin {
 
   val reactJsxUnscopedSettings = Seq(
 
+    includeFilter := "*.jsx",
+
     jsOptions := JsObject(
       "sourceMap" -> JsBoolean(sourceMap.value)
     ).toString()
@@ -45,8 +47,7 @@ object SbtReactJsxScript extends AutoPlugin {
       inConfig(TestAssets)(reactJsxUnscopedSettings) ++
       Seq(
         moduleName := "reactjsx",
-        shellFile := "jsx.js",
-        fileFilter := GlobFilter("*.jsx"),
+        shellFile := getClass.getClassLoader.getResource("jsx.js"),
 
         taskMessage in Assets := "React JSX transformation",
         taskMessage in TestAssets := "React JSX test transformation"
